@@ -1,9 +1,9 @@
 {
-  "build": {
-    "beforeBuildCommand": "",
+ "build": {
     "beforeDevCommand": "",
-    "devPath": ".",
-    "distDir": ".",
+    "beforeBuildCommand": "",
+    "devPath": "../dist",
+    "distDir": "../dist",
     "withGlobalTauri": false
   },
   "package": {
