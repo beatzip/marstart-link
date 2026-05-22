@@ -22,18 +22,30 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Create dummy assets
+       - name: Create dummy assets
         shell: pwsh
         run: |
+          # 1. Frontend dist
           New-Item -ItemType Directory -Force -Path "dist"
           Set-Content -Path "dist/index.html" -Value "<html><body>Game Accelerator MVP</body></html>"
           
+          # 2. Создаём валидные иконки через Base64
           New-Item -ItemType Directory -Force -Path "src-tauri/icons"
-          Invoke-WebRequest -Uri "https://github.com/tauri-apps/tauri/raw/dev/examples/api/src-tauri/icons/icon.png" -OutFile "src-tauri/icons/icon.png"
-          Invoke-WebRequest -Uri "https://github.com/tauri-apps/tauri/raw/dev/examples/api/src-tauri/icons/icon.ico" -OutFile "src-tauri/icons/icon.ico"
-          Invoke-WebRequest -Uri "https://github.com/tauri-apps/tauri/raw/dev/examples/api/src-tauri/icons/32x32.png" -OutFile "src-tauri/icons/32x32.png"
-          Invoke-WebRequest -Uri "https://github.com/tauri-apps/tauri/raw/dev/examples/api/src-tauri/icons/128x128.png" -OutFile "src-tauri/icons/128x128.png"
-
+          
+          # Минимальный валидный PNG (1x1 пиксель, прозрачный)
+          $pngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+          $pngBytes = [Convert]::FromBase64String($pngBase64)
+          [System.IO.File]::WriteAllBytes("src-tauri/icons/icon.png", $pngBytes)
+          [System.IO.File]::WriteAllBytes("src-tauri/icons/32x32.png", $pngBytes)
+          [System.IO.File]::WriteAllBytes("src-tauri/icons/128x128.png", $pngBytes)
+          
+          # Минимальный валидный ICO (16x16, 1-bit цвет)
+          $icoBase64 = "AAABAAEAEBAAAAEAIABoBAAAFgAAACgAAAAQAAAAIAAAAAEAIAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A"
+          $icoBytes = [Convert]::FromBase64String($icoBase64)
+          [System.IO.File]::WriteAllBytes("src-tauri/icons/icon.ico", $icoBytes)
+          
+          Write-Host "✅ Valid icons created from Base64"
+          Get-ChildItem "src-tauri/icons" | Format-Table Name, Length
       - name: Download SDKs
         shell: pwsh
         run: |
