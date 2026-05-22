@@ -28,8 +28,11 @@ pub fn parse_cidr(cidr: &str) -> Result<(IpAddr, u8), String> {
     if parts.len() != 2 {
         return Err(format!("Invalid CIDR format: {}", cidr));
     }
-    let ip: IpAddr = parts[0].parse().map_err(|e| e.to_string())?;
-    let prefix_len: u8 = parts[1].parse().map_err(|e| e.to_string())?;
+    
+    // ✅ ИСПРАВЛЕНО: явная типизация для закрытия E0282
+    let ip: IpAddr = parts[0].parse::<IpAddr>().map_err(|e| e.to_string())?;
+    let prefix_len: u8 = parts[1].parse::<u8>().map_err(|e| e.to_string())?;
+    
     if prefix_len > 32 {
         return Err(format!("Invalid prefix length: {}", prefix_len));
     }
