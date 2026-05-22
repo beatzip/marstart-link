@@ -25,6 +25,8 @@ futures = "0.3"
 pnet = "0.34"
 libloading = "0.8"
 wintun = "0.3"
+base64 = "0.22"       # ✅ ДОБАВЛЕНО
+memoffset = "0.9"     # ✅ ДОБАВЛЕНО
 
 windows = { version = "0.52", features = [
     "Win32_NetworkManagement_IpHelper",
