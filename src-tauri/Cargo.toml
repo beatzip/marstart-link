@@ -1,0 +1,37 @@
+[package]
+name = "game-accelerator"
+version = "0.1.0"
+edition = "2021"
+
+[build-dependencies]
+winres = "0.1"
+
+[dependencies]
+tauri = { version = "1.5", features = ["system-tray", "updater", "shell-open"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1", features = ["full"] }
+log = "0.4"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+anyhow = "1.0"
+thiserror = "1.0"
+reqwest = { version = "0.11", features = ["json"] }
+keyring = "2.0"
+whoami = "1.4"
+winreg = "0.52"
+futures = "0.3"
+pnet = "0.34"
+wireguard-nt = "0.4"
+wintun = "0.3"
+windows = { version = "0.52", features = [
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_NetworkManagement_Ndis",
+    "Win32_Networking_WinSock",
+    "Win32_Foundation"
+] }
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]

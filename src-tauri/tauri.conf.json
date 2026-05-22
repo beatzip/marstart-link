@@ -1,0 +1,30 @@
+{
+  "build": {
+    "beforeBuildCommand": "npm run build",
+    "beforeDevCommand": "npm run dev",
+    "devPath": "../dist",
+    "distDir": "../dist",
+    "withGlobalTauri": false
+  },
+  "package": {
+    "productName": "Game Accelerator",
+    "version": "0.1.0"
+  },
+  "tauri": {
+    "bundle": {
+      "active": true,
+      "identifier": "com.gameaccelerator.app",
+      "icon": [],
+      "resources": ["resources/**/*.dll"],
+      "targets": ["msi", "nsis"]
+    },
+    "windows": [
+      {
+        "title": "Game Accelerator",
+        "width": 900,
+        "height": 620,
+        "resizable": true
+      }
+    ]
+  }
+}
