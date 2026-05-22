@@ -1,9 +1,9 @@
 {
   "build": {
-    "beforeBuildCommand": "npm run build",
-    "beforeDevCommand": "npm run dev",
-    "devPath": "../dist",
-    "distDir": "../dist",
+    "beforeBuildCommand": "",
+    "beforeDevCommand": "",
+    "devPath": ".",
+    "distDir": ".",
     "withGlobalTauri": false
   },
   "package": {
