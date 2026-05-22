@@ -22,30 +22,37 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-       - name: Create dummy assets
+      - name: Create dummy assets
         shell: pwsh
         run: |
-          # 1. Frontend dist
+          # 1. Frontend dist (заглушка для tauri::generate_context!)
           New-Item -ItemType Directory -Force -Path "dist"
           Set-Content -Path "dist/index.html" -Value "<html><body>Game Accelerator MVP</body></html>"
           
-          # 2. Создаём валидные иконки через Base64
+          # 2. Создаём папку для иконок
           New-Item -ItemType Directory -Force -Path "src-tauri/icons"
           
-          # Минимальный валидный PNG (1x1 пиксель, прозрачный)
+          # 3. Валидный минимальный PNG (1x1 прозрачный) через Base64
           $pngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
           $pngBytes = [Convert]::FromBase64String($pngBase64)
           [System.IO.File]::WriteAllBytes("src-tauri/icons/icon.png", $pngBytes)
           [System.IO.File]::WriteAllBytes("src-tauri/icons/32x32.png", $pngBytes)
           [System.IO.File]::WriteAllBytes("src-tauri/icons/128x128.png", $pngBytes)
           
-          # Минимальный валидный ICO (16x16, 1-bit цвет)
-          $icoBase64 = "AAABAAEAEBAAAAEAIABoBAAAFgAAACgAAAAQAAAAIAAAAAEAIAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A"
-          $icoBytes = [Convert]::FromBase64String($icoBase64)
-          [System.IO.File]::WriteAllBytes("src-tauri/icons/icon.ico", $icoBytes)
+          # 4. Валидный ICO через System.Drawing (нативный Windows API)
+          Add-Type -AssemblyName System.Drawing
+          $bmp = New-Object System.Drawing.Bitmap(16, 16)
+          $hIcon = $bmp.GetHicon()
+          $icon = [System.Drawing.Icon]::FromHandle($hIcon)
+          $fs = [System.IO.File]::Create("src-tauri/icons/icon.ico")
+          $icon.Save($fs)
+          $fs.Close()
+          $bmp.Dispose()
           
-          Write-Host "✅ Valid icons created from Base64"
+          Write-Host "✅ Valid icons and dist created"
           Get-ChildItem "src-tauri/icons" | Format-Table Name, Length
+          Get-ChildItem "dist" | Format-Table Name, Length
+
       - name: Download SDKs
         shell: pwsh
         run: |
@@ -54,6 +61,7 @@ jobs:
           Expand-Archive -Path "src-tauri/sdk/wg.zip" -DestinationPath "src-tauri/sdk/" -Force
           Invoke-WebRequest -Uri "https://www.wintun.net/builds/wintun-0.14.1.zip" -OutFile "src-tauri/sdk/wintun.zip"
           Expand-Archive -Path "src-tauri/sdk/wintun.zip" -DestinationPath "src-tauri/sdk/" -Force
+          Write-Host "✅ SDKs downloaded and extracted"
 
       - name: Clean cache
         run: |
