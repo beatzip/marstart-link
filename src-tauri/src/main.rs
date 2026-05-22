@@ -15,6 +15,7 @@ use crate::utils::resolve_dll_path;
 use crate::wireguard::{WireGuardDll, TunnelState};
 
 fn main() {
+    // Logging
     let app_data = std::env::var("APPDATA").unwrap_or_else(|_| ".".into());
     let log_dir = format!("{}\\GameAccelerator\\logs", app_data);
     let file_appender = rolling::daily(log_dir, "app.log");
@@ -29,29 +30,70 @@ fn main() {
         .with(fmt::layer().with_writer(std::io::stdout))
         .init();
 
+    if let Err(e) = run_app() {
+        // ✅ Показываем MessageBox с ошибкой перед выходом
+        show_error_dialog(&format!("Failed to start Game Accelerator:\n\n{}", e));
+        std::process::exit(1);
+    }
+}
+
+fn run_app() -> Result<(), Box<dyn std::error::Error>> {
     tauri::Builder::default()
         .setup(|app| {
             let handle = app.handle();
-           
+
+            // ✅ Обработка ошибок вместо .expect()
             let dll_path = resolve_dll_path(&handle, "wireguard.dll")
-                .expect("Failed to resolve wireguard.dll");
-            let dll_path_str = dll_path.to_str().expect("Invalid DLL path");
-            
-            let dll = Arc::new(WireGuardDll::load(dll_path_str)
-                .expect("Failed to load WireGuard DLL"));
-            
+                .map_err(|e| format!("DLL not found: {}", e))?;
+            let dll_path_str = dll_path.to_str()
+                .ok_or("Invalid DLL path encoding")?;
+
+            let dll = Arc::new(
+                WireGuardDll::load(dll_path_str)
+                    .map_err(|e| format!("Failed to load DLL: {}", e))?
+            );
+
             let tunnel_state = TunnelState::new(dll.clone());
             let (dll_for_hook, adapter_for_hook) = tunnel_state.clone_for_panic_hook();
-            
+
             app.manage(tunnel_state);
             wireguard::setup_panic_hook(dll_for_hook, adapter_for_hook);
-           
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             wireguard::tunnel_apply_config,
             wireguard::tunnel_disconnect,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .run(tauri::generate_context()?)
+        .map_err(|e| format!("Tauri runtime error: {}", e))?;
+
+    Ok(())
+}
+
+// Нативный Windows MessageBox (работает без Tauri window)
+fn show_error_dialog(message: &str) {
+    #[cfg(target_os = "windows")]
+    {
+        use std::ffi::OsStr;
+        use std::os::windows::ffi::OsStrExt;
+        use windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK};
+        use windows::core::PCWSTR;
+
+        let msg_wide: Vec<u16> = OsStr::new(message).encode_wide().chain(Some(0)).collect();
+        let title_wide: Vec<u16> = OsStr::new("Game Accelerator Error")
+            .encode_wide().chain(Some(0)).collect();
+
+        unsafe {
+            MessageBoxW(
+                None,
+                PCWSTR(msg_wide.as_ptr()),
+                PCWSTR(title_wide.as_ptr()),
+                MB_ICONERROR | MB_OK,
+            );
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    eprintln!("ERROR: {}", message);
 }
