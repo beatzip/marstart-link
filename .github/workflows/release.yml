@@ -30,7 +30,11 @@ jobs:
           Expand-Archive -Path "src-tauri/sdk/wg.zip" -DestinationPath "src-tauri/sdk/" -Force
           Invoke-WebRequest -Uri "https://www.wintun.net/builds/wintun-0.14.1.zip" -OutFile "src-tauri/sdk/wintun.zip"
           Expand-Archive -Path "src-tauri/sdk/wintun.zip" -DestinationPath "src-tauri/sdk/" -Force
-          Get-ChildItem -Recurse "src-tauri/sdk"
+
+      # ✅ ДОБАВЛЕНО: очистка кэша для избежания os error 33
+      - name: Clean Rust cache
+        working-directory: src-tauri
+        run: cargo clean
 
       - name: Cargo check
         working-directory: src-tauri

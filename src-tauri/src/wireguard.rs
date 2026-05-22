@@ -6,7 +6,6 @@ use std::time::{Duration, Instant};
 use libloading::{Library, Symbol};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
-use windows::Win32::Foundation::HANDLE;
 use windows::Win32::NetworkManagement::IpHelper::{
     ConvertInterfaceLuidToIndex, GetIfEntry2, GetIpForwardEntry2, GetIpInterfaceEntry,
     InitializeIpInterfaceEntry, SetIpForwardEntry2, SetIpInterfaceEntry, MIB_IF_ROW2,
@@ -15,11 +14,17 @@ use windows::Win32::NetworkManagement::IpHelper::{
 use windows::Win32::NetworkManagement::Ndis::{IfOperStatusUp, NET_LUID_LH};
 use windows::Win32::Networking::WinSock::AF_INET;
 
-use crate::utils::{create_forward_row, parse_cidr, resolve_dll_path};
+use crate::utils::{create_forward_row, parse_cidr};
+
+// === Newtype для Send + Sync ===
+#[derive(Clone, Copy)]
+pub struct WireGuardAdapterHandle(*mut c_void);
+
+// Безопасно, потому что мы управляем handle через Mutex и DLL гарантирует thread-safety
+unsafe impl Send for WireGuardAdapterHandle {}
+unsafe impl Sync for WireGuardAdapterHandle {}
 
 // === FFI Types (из wireguard.h) ===
-type WireGuardAdapterHandle = *mut c_void;
-
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WireGuardAdapterState {
@@ -31,17 +36,17 @@ type WireGuardCreateAdapterFn = unsafe extern "system" fn(
     name: *const u16,
     tunnel_type: *const u16,
     requested_guid: *const c_void,
-) -> WireGuardAdapterHandle;
+) -> *mut c_void;
 
-type WireGuardCloseAdapterFn = unsafe extern "system" fn(adapter: WireGuardAdapterHandle);
+type WireGuardCloseAdapterFn = unsafe extern "system" fn(adapter: *mut c_void);
 
 type WireGuardSetStateFn = unsafe extern "system" fn(
-    adapter: WireGuardAdapterHandle,
+    adapter: *mut c_void,
     state: WireGuardAdapterState,
-) -> i32; // BOOL
+) -> i32;
 
 type WireGuardGetAdapterLuidFn = unsafe extern "system" fn(
-    adapter: WireGuardAdapterHandle,
+    adapter: *mut c_void,
     luid: *mut NET_LUID_LH,
 );
 
@@ -103,18 +108,18 @@ impl WireGuardDll {
             if handle.is_null() {
                 Err("WireGuardCreateAdapter returned NULL".into())
             } else {
-                Ok(handle)
+                Ok(WireGuardAdapterHandle(handle))
             }
         }
     }
 
     pub fn close_adapter(&self, handle: WireGuardAdapterHandle) {
-        unsafe { (self.close_adapter)(handle) };
+        unsafe { (self.close_adapter)(handle.0) };
     }
 
     pub fn set_state(&self, handle: WireGuardAdapterHandle, state: WireGuardAdapterState) -> Result<(), String> {
         unsafe {
-            let result = (self.set_state)(handle, state);
+            let result = (self.set_state)(handle.0, state);
             if result == 0 {
                 Err("WireGuardSetState failed".into())
             } else {
@@ -126,7 +131,7 @@ impl WireGuardDll {
     pub fn get_adapter_luid(&self, handle: WireGuardAdapterHandle) -> NET_LUID_LH {
         unsafe {
             let mut luid: NET_LUID_LH = std::mem::zeroed();
-            (self.get_adapter_luid)(handle, &mut luid);
+            (self.get_adapter_luid)(handle.0, &mut luid);
             luid
         }
     }
@@ -168,13 +173,10 @@ pub async fn tunnel_apply_config(
     adapter_name: String,
     expected_routes: Vec<String>,
 ) -> Result<TunnelStatus, String> {
-    // Сохраняем конфиг во временный файл (для CLI-применения или будущего FFI SetConfiguration)
+    // Сохраняем конфиг во временный файл (для будущего FFI SetConfiguration)
     let config_path = std::env::temp_dir().join("game_accelerator_wg.conf");
     std::fs::write(&config_path, &config_content).map_err(|e| format!("Failed to write config: {e}"))?;
     tracing::info!("Config written to {:?}", config_path);
-
-    // TODO: Здесь будет вызов WireGuardSetConfiguration через FFI
-    // Пока что используем создание адаптера + установку состояния
 
     let interface_index = {
         let mut adapter_lock = state.adapter.lock().map_err(|e| e.to_string())?;
@@ -223,8 +225,8 @@ pub async fn tunnel_disconnect(state: State<'_, TunnelState>) -> Result<(), Stri
 fn luid_to_index(luid: NET_LUID_LH) -> Result<u32, String> {
     unsafe {
         let mut index = 0u32;
+        // ✅ ИСПРАВЛЕНО: убрано .ok(), сразу map_err
         ConvertInterfaceLuidToIndex(&luid, &mut index)
-            .ok()
             .map_err(|e| format!("Failed to convert LUID to InterfaceIndex: {e}"))?;
         Ok(index)
     }
