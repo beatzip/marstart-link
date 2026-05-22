@@ -1,25 +1,34 @@
-use std::sync::Mutex;
+use std::net::IpAddr;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, State};
-use wireguard_nt::{Adapter, AdapterState};
-use windows::Win32::NetworkManagement::IpHelper::{
-    GetIfEntry2, GetIpInterfaceEntry, GetIpForwardEntry2,
-    InitializeIpInterfaceEntry, SetIpInterfaceEntry, SetIpForwardEntry2,
-    MIB_IF_ROW2, MIB_IPINTERFACE_ROW,
-};
-use windows::Win32::NetworkManagement::Ndis::IfOperStatusUp;
-use windows::Win32::Networking::WinSock::AF_INET;
-use serde::{Serialize, Deserialize};
 
-use crate::utils::{resolve_dll_path, parse_cidr, create_forward_row};
+use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, State};
+use wireguard_nt::{Adapter, SetInterface};
+
+use windows::Win32::NetworkManagement::IpHelper::{
+    ConvertInterfaceLuidToIndex, GetIfEntry2, GetIpForwardEntry2, GetIpInterfaceEntry,
+    InitializeIpInterfaceEntry, SetIpInterfaceEntry, SetIpForwardEntry2, MIB_IF_ROW2,
+    MIB_IPINTERFACE_ROW,
+};
+use windows::Win32::NetworkManagement::Ndis::{IfOperStatusUp, NET_LUID_LH};
+use windows::Win32::Networking::WinSock::AF_INET;
+
+use crate::utils::{create_forward_row, parse_cidr, resolve_dll_path};
 
 pub struct TunnelState {
-    pub adapter: Mutex<Option<Adapter>>,
+    pub adapter: Arc<Mutex<Option<Adapter>>>,
 }
 
 impl TunnelState {
     pub fn new() -> Self {
-        Self { adapter: Mutex::new(None) }
+        Self {
+            adapter: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    pub fn clone_for_panic_hook(&self) -> Arc<Mutex<Option<Adapter>>> {
+        self.adapter.clone()
     }
 }
 
@@ -39,34 +48,33 @@ pub async fn tunnel_apply_config(
     adapter_name: String,
     expected_routes: Vec<String>,
 ) -> Result<TunnelStatus, String> {
-    let dll_path = resolve_dll_path(&app, "wireguard.dll")?;
-    let dll_path_str = dll_path.to_str().ok_or("Invalid DLL path")?;
+    let dll = load_wireguard_dll(&app)?;
+    let config = parse_set_interface(&config_content)?;
 
-    // === ЭТАП 1: Синхронная работа под локом ===
     let (adapter, interface_index) = {
         let mut adapter_lock = state.adapter.lock().map_err(|e| e.to_string())?;
 
         if let Some(old) = adapter_lock.take() {
-            let _ = old.set_state(AdapterState::Down);
             drop(old);
         }
 
-        let adapter = Adapter::create(dll_path_str, &adapter_name, "GameAccelerator", None)
-            .map_err(|e| format!("Failed to create adapter: {:?}", e))?;
+        let adapter = Adapter::create(dll, &adapter_name, "GameAccelerator", None)
+            .map_err(|e| format!("Failed to create adapter: {e}"))?;
 
-        adapter.set_config(&config_content).map_err(|e| format!("SetConfig failed: {:?}", e))?;
-        adapter.set_state(AdapterState::Up).map_err(|e| format!("SetState Up failed: {:?}", e))?;
+        adapter
+            .set_config(&config)
+            .map_err(|e| format!("SetConfig failed: {e}"))?;
 
-        let if_idx = adapter.get_interface_index().map_err(|e| format!("Failed to get interface index: {:?}", e))?;
-        (adapter, if_idx)
+        let luid = adapter.get_luid();
+        let interface_index = luid_to_index(luid)?;
+
+        (adapter, interface_index)
     }; // Lock отпущен
 
-    // === ЭТАП 2: Асинхронное ожидание и настройка ===
     wait_for_interface_up(interface_index, Duration::from_secs(15)).await?;
     set_interface_mtu(interface_index, 1280)?;
     force_route_metrics(interface_index, &expected_routes)?;
 
-    // === ЭТАП 3: Сохранение результата ===
     {
         let mut adapter_lock = state.adapter.lock().map_err(|e| e.to_string())?;
         *adapter_lock = Some(adapter);
@@ -80,18 +88,53 @@ pub async fn tunnel_apply_config(
     })
 }
 
+#[tauri::command]
+pub async fn tunnel_disconnect(state: State<'_, TunnelState>) -> Result<(), String> {
+    let mut adapter_lock = state.adapter.lock().map_err(|e| e.to_string())?;
+    if let Some(adapter) = adapter_lock.take() {
+        drop(adapter);
+    }
+    Ok(())
+}
+
+fn load_wireguard_dll(app: &AppHandle) -> Result<Arc<wireguard_nt::dll::dll>, String> {
+    let dll_path = resolve_dll_path(app, "wireguard.dll")?;
+    wireguard_nt::dll::load(&dll_path)
+        .map_err(|e| format!("Failed to load wireguard.dll: {e}"))
+}
+
+fn parse_set_interface(config_content: &str) -> Result<SetInterface, String> {
+    config_content
+        .parse::<SetInterface>()
+        .map_err(|e| format!("Failed to parse WireGuard config: {e}"))
+}
+
+fn luid_to_index(luid: NET_LUID_LH) -> Result<u32, String> {
+    unsafe {
+        let mut index = 0u32;
+        ConvertInterfaceLuidToIndex(&luid, &mut index)
+            .ok()
+            .map_err(|e| format!("Failed to convert LUID to InterfaceIndex: {e}"))?;
+        Ok(index)
+    }
+}
+
 async fn wait_for_interface_up(interface_index: u32, timeout: Duration) -> Result<(), String> {
     let start = Instant::now();
+
     while start.elapsed() < timeout {
         unsafe {
             let mut row: MIB_IF_ROW2 = std::mem::zeroed();
             row.InterfaceIndex = interface_index;
+
             if GetIfEntry2(&mut row).is_ok() && row.OperStatus == IfOperStatusUp {
                 return Ok(());
             }
         }
+
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
+
     Err("Timeout waiting for interface to become UP".into())
 }
 
@@ -105,11 +148,14 @@ fn set_interface_mtu(interface_index: u32, mtu: u32) -> Result<(), String> {
         if GetIpInterfaceEntry(&mut row).is_err() {
             return Err("GetIpInterfaceEntry failed".into());
         }
+
         row.NlMtu = mtu;
+
         if SetIpInterfaceEntry(&mut row).is_err() {
             return Err("SetIpInterfaceEntry (MTU) failed".into());
         }
     }
+
     Ok(())
 }
 
@@ -117,19 +163,23 @@ fn force_route_metrics(interface_index: u32, expected_cidrs: &[String]) -> Resul
     for cidr in expected_cidrs {
         let (ip, prefix_len) = parse_cidr(cidr)?;
 
-        if let std::net::IpAddr::V4(ipv4) = ip {
+        if let IpAddr::V4(ipv4) = ip {
             let mut row = unsafe { create_forward_row(ipv4, prefix_len, interface_index) };
+
             unsafe {
                 if GetIpForwardEntry2(&mut row).is_err() {
-                    tracing::warn!("Route not found for {}, skipping metric force", cidr);
+                    tracing::warn!("Route not found for {cidr}, skipping metric force");
                     continue;
                 }
+
                 row.Metric = 8;
+
                 if SetIpForwardEntry2(&mut row).is_err() {
-                    tracing::warn!("Failed to set metric for {}", cidr);
+                    tracing::warn!("Failed to set metric for {cidr}");
                 }
             }
         }
     }
+
     Ok(())
 }

@@ -2,36 +2,104 @@
 name = "game-accelerator"
 version = "0.1.0"
 edition = "2021"
+build = "build.rs"
 
 [build-dependencies]
 winres = "0.1"
 
 [dependencies]
-tauri = { version = "1.5", features = ["system-tray", "updater", "shell-open"] }
+# =========================
+# Tauri
+# =========================
+tauri = { version = "1.5", features = [
+    "system-tray",
+    "updater",
+    "shell-open"
+] }
+
+# =========================
+# Serialization
+# =========================
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-tokio = { version = "1", features = ["full"] }
+
+# =========================
+# Async Runtime
+# =========================
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "macros",
+    "time",
+    "sync",
+    "process"
+] }
+
+futures = "0.3"
+
+# =========================
+# Logging & Tracing
+# =========================
 log = "0.4"
+
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+tracing-subscriber = { version = "0.3", features = [
+    "env-filter",
+    "fmt"
+] }
+
 tracing-appender = "0.2"
+
+# =========================
+# Error Handling
+# =========================
 anyhow = "1.0"
 thiserror = "1.0"
-reqwest = { version = "0.11", features = ["json"] }
-keyring = "2.0"
-whoami = "1.4"
+
+# =========================
+# HTTP / Auth
+# =========================
+reqwest = { version = "0.11", default-features = false, features = [
+    "json",
+    "rustls-tls"
+] }
+
+keyring = "2.3"
+whoami = "1.5"
+
+# =========================
+# Windows Registry
+# =========================
 winreg = "0.52"
-futures = "0.3"
+
+# =========================
+# Networking
+# =========================
 pnet = "0.34"
-wireguard-nt = "0.4"
-wintun = "0.3"
+
+wireguard-nt = "0.5"
+wintun = "0.4"
+
+# =========================
+# Windows API Bindings
+# =========================
 windows = { version = "0.52", features = [
+    "Win32_Foundation",
     "Win32_NetworkManagement_IpHelper",
     "Win32_NetworkManagement_Ndis",
-    "Win32_Networking_WinSock",
-    "Win32_Foundation"
+    "Win32_Networking_WinSock"
 ] }
 
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+
+# =========================
+# Release Profile
+# =========================
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "z"
+strip = true
