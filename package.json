@@ -1,0 +1,8 @@
+{
+  "name": "game-accelerator",
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "echo 'dev not needed for backend-only build'",
+    "build": "echo 'build not needed for backend-only build'"
+  }
+}

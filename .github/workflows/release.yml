@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  release:
+    permissions:
+      contents: write
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install JS deps
+        run: npm install
+
+      - name: Download SDKs
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "src-tauri/sdk"
+          Invoke-WebRequest -Uri "https://download.wireguard.com/wireguard-nt/wireguard-nt-1.1.zip" -OutFile "src-tauri/sdk/wg.zip"
+          Expand-Archive -Path "src-tauri/sdk/wg.zip" -DestinationPath "src-tauri/sdk/" -Force
+          Invoke-WebRequest -Uri "https://www.wintun.net/builds/wintun-0.14.1.zip" -OutFile "src-tauri/sdk/wintun.zip"
+          Expand-Archive -Path "src-tauri/sdk/wintun.zip" -DestinationPath "src-tauri/sdk/" -Force
+          Get-ChildItem -Recurse "src-tauri/sdk"
+
+      - name: Cargo check
+        working-directory: src-tauri
+        run: cargo check --verbose
+
+      - name: Cargo clippy
+        working-directory: src-tauri
+        run: cargo clippy -- -D warnings
+
+      - name: Cargo test
+        working-directory: src-tauri
+        run: cargo test --verbose
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Game Accelerator v__VERSION__"
+          releaseDraft: false
+          prerelease: false
