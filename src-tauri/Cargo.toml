@@ -23,15 +23,14 @@ whoami = "1.4"
 winreg = "0.52"
 futures = "0.3"
 pnet = "0.34"
-wintun = "0.3"
 libloading = "0.8"
+wintun = "0.3"
 
 windows = { version = "0.52", features = [
     "Win32_NetworkManagement_IpHelper",
     "Win32_NetworkManagement_Ndis",
     "Win32_Networking_WinSock",
-    "Win32_Foundation",
-    "Win32_System_LibraryLoader"
+    "Win32_Foundation"
 ] }
 
 [features]

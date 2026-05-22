@@ -168,7 +168,6 @@ pub async fn tunnel_apply_config(
     adapter_name: String,
     expected_routes: Vec<String>,
 ) -> Result<TunnelStatus, String> {
-    // TODO: здесь будет WireGuardSetConfiguration через FFI
     let config_path = std::env::temp_dir().join("game_accelerator_wg.conf");
     std::fs::write(&config_path, &config_content).map_err(|e| format!("Failed to write config: {e}"))?;
     tracing::info!("Config written to {:?}", config_path);
