@@ -15,7 +15,6 @@ use crate::utils::resolve_dll_path;
 use crate::wireguard::{WireGuardDll, TunnelState};
 
 fn main() {
-    // Logging
     let app_data = std::env::var("APPDATA").unwrap_or_else(|_| ".".into());
     let log_dir = format!("{}\\GameAccelerator\\logs", app_data);
     let file_appender = rolling::daily(log_dir, "app.log");
@@ -33,20 +32,20 @@ fn main() {
     tauri::Builder::default()
         .setup(|app| {
             let handle = app.handle();
-            
-            // ✅ Загружаем DLL при старте
+           
             let dll_path = resolve_dll_path(&handle, "wireguard.dll")
                 .expect("Failed to resolve wireguard.dll");
             let dll_path_str = dll_path.to_str().expect("Invalid DLL path");
-            let dll = Arc::new(WireGuardDll::load(dll_path_str).expect("Failed to load DLL"));
-
-            // ✅ Передаём DLL в TunnelState
+            
+            let dll = Arc::new(WireGuardDll::load(dll_path_str)
+                .expect("Failed to load WireGuard DLL"));
+            
             let tunnel_state = TunnelState::new(dll.clone());
             let (dll_for_hook, adapter_for_hook) = tunnel_state.clone_for_panic_hook();
-
+            
             app.manage(tunnel_state);
             wireguard::setup_panic_hook(dll_for_hook, adapter_for_hook);
-            
+           
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
