@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use libloading::{Library, Symbol};
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, State};
 use windows::Win32::NetworkManagement::IpHelper::{
     ConvertInterfaceLuidToIndex, GetIfEntry2, GetIpForwardEntry2, GetIpInterfaceEntry,
     InitializeIpInterfaceEntry, SetIpForwardEntry2, SetIpInterfaceEntry, MIB_IF_ROW2,
@@ -167,7 +167,7 @@ pub struct TunnelStatus {
 // === Tauri Commands ===
 #[tauri::command]
 pub async fn tunnel_apply_config(
-    app: AppHandle,
+    _app: AppHandle,
     state: State<'_, TunnelState>,
     config_content: String,
     adapter_name: String,

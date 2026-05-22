@@ -36,6 +36,12 @@ jobs:
         working-directory: src-tauri
         run: cargo clean
 
+      # ✅ ДОБАВЬ ЭТОТ ШАГ ПЕРЕД cargo check
+      - name: Create dummy frontend dist
+        run: |
+          New-Item -ItemType Directory -Force -Path "dist"
+          Set-Content -Path "dist/index.html" -Value "<html><body>Game Accelerator MVP</body></html>"
+
       - name: Cargo check
         working-directory: src-tauri
         run: cargo check --verbose
