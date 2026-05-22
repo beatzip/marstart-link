@@ -4,7 +4,7 @@
 )]
 
 mod wireguard;
-mod utils; // ✅ ВАЖНО: без этого wireguard.rs не найдёт crate::utils
+mod utils;
 
 use std::sync::Arc;
 use tauri::Manager;
@@ -15,13 +15,12 @@ use crate::utils::resolve_dll_path;
 use crate::wireguard::{WireGuardDll, TunnelState};
 
 fn main() {
-    // Logging setup
+    // Logging
     let app_data = std::env::var("APPDATA").unwrap_or_else(|_| ".".into());
     let log_dir = format!("{}\\GameAccelerator\\logs", app_data);
     let file_appender = rolling::daily(log_dir, "app.log");
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
-    // ✅ ИСПРАВЛЕНО: правильный EnvFilter
     let env_filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new("info"));
 
