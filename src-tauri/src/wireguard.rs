@@ -1,5 +1,5 @@
 // ✅ ИСПРАВЛЕНО: pub mod перенесены в main.rs, здесь только use crate::
-use crate::wireguard_config;
+// wireguard_config используется только через wireguard_parser — прямой импорт не нужен
 use crate::wireguard_parser;
 
 use std::ffi::{c_void, OsStr};

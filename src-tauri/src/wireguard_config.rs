@@ -115,7 +115,7 @@ pub fn socket_addr_to_sockaddr_inet(addr: &SocketAddr) -> SOCKADDR_INET {
             sockaddr.Ipv6.sin6_addr = IN6_ADDR {
                 u: windows::Win32::Networking::WinSock::IN6_ADDR_0 { Byte: v6.ip().octets() },
             };
-            sockaddr.Ipv6.sin6_scope_id = v6.scope_id();
+            sockaddr.Ipv6.Anonymous.sin6_scope_id = v6.scope_id();
         },
     }
     sockaddr
