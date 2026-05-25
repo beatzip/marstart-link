@@ -49,7 +49,6 @@ pub unsafe fn create_forward_row(
     row.DestinationPrefix.Prefix.si_family = AF_INET;
     row.DestinationPrefix.Prefix.Ipv4.sin_addr.S_un.S_addr = u32::from_ne_bytes(ip.octets());
     row.DestinationPrefix.PrefixLength = prefix_len;
-    row.Protocol = windows::Win32::NetworkManagement::IpHelper::NL_ROUTE_PROTOCOL::RouteProtocolNetMgmt;
     row.Metric = 8;
 
     row
