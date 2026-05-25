@@ -34,6 +34,7 @@ pub struct ParsedConfig {
     /// IP/prefix назначается на тоннельный адаптер (например 10.0.0.2/32)
     pub interface_address: Option<std::net::IpAddr>,
     pub interface_prefix: Option<u8>,
+    pub dns_servers: Vec<std::net::IpAddr>,
     pub peers: Vec<ParsedPeer>,
 }
 
