@@ -81,7 +81,6 @@ pub fn serialize_config(config: &ParsedConfig) -> Result<Vec<u8>, String> {
                 address,
                 address_family,
                 cidr: allowed_ip.cidr,
-                flags: 0, // 0 = Add/Update
             };
 
             let ip_bytes: &[u8] = unsafe {
