@@ -5,7 +5,9 @@ use std::ffi::{c_void, OsStr};
 use std::os::windows::ffi::OsStrExt;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use libloading::Library;
+// ✅ FIX: LOAD_WITH_ALTERED_SEARCH_PATH — Windows ищет зависимости DLL
+// (wintun.dll) в директории самой wireguard.dll, а не только рядом с .exe
+use libloading::{Library, os::windows::{Library as WinLibrary, LOAD_WITH_ALTERED_SEARCH_PATH}};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 use windows::Win32::NetworkManagement::IpHelper::{
@@ -67,7 +69,12 @@ pub struct WireGuardDll {
 impl WireGuardDll {
     pub fn load(path: &str) -> Result<Self, String> {
         unsafe {
-            let lib = Library::new(path).map_err(|e| format!("Failed to load DLL: {e}"))?;
+            let win_lib = WinLibrary::load_with_flags(path, LOAD_WITH_ALTERED_SEARCH_PATH)
+                .map_err(|e| {
+                    let os_code = std::io::Error::last_os_error().raw_os_error().unwrap_or(-1);
+                    format!("LoadLibraryExW failed for \"{}\": {} (OS error {})", path, e, os_code)
+                })?;
+            let lib = Library::from(win_lib);
             let create_adapter_fn = *lib.get(b"WireGuardCreateAdapter").map_err(|e| format!("Symbol not found: {e}"))?;
             let close_adapter_fn = *lib.get(b"WireGuardCloseAdapter").map_err(|e| format!("Symbol not found: {e}"))?;
             // ✅ 修复：根据 wireguard.h，正确的导出名是 WireGuardSetAdapterState
@@ -273,6 +280,18 @@ pub async fn tunnel_apply_config(
         adapter_name: Some(adapter_name),
         interface_index: Some(interface_index),
         mtu: Some(1280),
+    })
+}
+
+#[tauri::command]
+pub async fn tunnel_get_status(state: State<'_, TunnelState>) -> Result<TunnelStatus, String> {
+    let adapter_lock = state.adapter.lock().unwrap_or_else(|p| p.into_inner());
+    let is_active = adapter_lock.is_some();
+    Ok(TunnelStatus {
+        is_active,
+        adapter_name: if is_active { Some("GameAccelerator".to_string()) } else { None },
+        interface_index: None,
+        mtu: if is_active { Some(1280) } else { None },
     })
 }
 

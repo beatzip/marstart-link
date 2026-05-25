@@ -5,6 +5,8 @@ use crate::wireguard_config::{ParsedAllowedIp, ParsedConfig, ParsedPeer, WIREGUA
 pub fn parse_wireguard_config(text: &str) -> Result<ParsedConfig, String> {
     let mut private_key: Option<[u8; WIREGUARD_KEY_LENGTH]> = None;
     let mut listen_port: Option<u16> = None;
+    let mut interface_address: Option<std::net::IpAddr> = None;
+    let mut interface_prefix: Option<u8> = None;
     let mut peers: Vec<ParsedPeer> = Vec::new();
     
     let mut current_peer: Option<ParsedPeerBuilder> = None;
@@ -37,6 +39,18 @@ pub fn parse_wireguard_config(text: &str) -> Result<ParsedConfig, String> {
             match key {
                 "PrivateKey" => private_key = Some(decode_wg_key(value, "PrivateKey", line_num)?),
                 "ListenPort" => listen_port = Some(value.parse().map_err(|e| format!("Line {}: Invalid ListenPort: {}", line_num + 1, e))?),
+                "Address" => {
+                    // Парсим IP/prefix (например 10.0.0.2/32 или fd00::2/128)
+                    let Some((ip_str, prefix_str)) = value.split_once('/') else {
+                        return Err(format!("Line {}: Address must be IP/prefix, got '{}'", line_num + 1, value));
+                    };
+                    interface_address = Some(ip_str.trim().parse().map_err(|e| {
+                        format!("Line {}: Invalid Address IP '{}': {}", line_num + 1, ip_str, e)
+                    })?);
+                    interface_prefix = Some(prefix_str.trim().parse().map_err(|e| {
+                        format!("Line {}: Invalid Address prefix '{}': {}", line_num + 1, prefix_str, e)
+                    })?);
+                }
                 _ => {}
             }
         } else if in_peer {
@@ -60,7 +74,7 @@ pub fn parse_wireguard_config(text: &str) -> Result<ParsedConfig, String> {
     if let Some(peer_builder) = current_peer.take() { peers.push(peer_builder.build(text.lines().count())?); }
     let private_key = private_key.ok_or("Missing [Interface] PrivateKey")?;
 
-    Ok(ParsedConfig { private_key, listen_port, peers })
+    Ok(ParsedConfig { private_key, listen_port, interface_address, interface_prefix, peers })
 }
 
 fn decode_wg_key(s: &str, field_name: &str, line_num: usize) -> Result<[u8; WIREGUARD_KEY_LENGTH], String> {

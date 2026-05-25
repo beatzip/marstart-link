@@ -31,6 +31,9 @@ pub const WIREGUARD_ALLOWED_IP_REMOVE: WireguardAllowedIpFlag = 1 << 0;
 pub struct ParsedConfig {
     pub private_key: [u8; WIREGUARD_KEY_LENGTH],
     pub listen_port: Option<u16>,
+    /// IP/prefix назначается на тоннельный адаптер (например 10.0.0.2/32)
+    pub interface_address: Option<std::net::IpAddr>,
+    pub interface_prefix: Option<u8>,
     pub peers: Vec<ParsedPeer>,
 }
 
@@ -152,5 +155,30 @@ mod abi_tests {
         println!("Interface size: {}", size_of::<WireguardInterface>());
         println!("Peer size: {}", size_of::<WireguardPeer>());
         println!("AllowedIp size: {}", size_of::<WireguardAllowedIp>());
+    }
+
+    // ✅ Проверяем ключевые поля WireguardPeer
+    // endpoint должен быть на 76 (0x4c) — после keepalive(2)+padding(2)
+    // tx_bytes на 104 (0x68) — после SOCKADDR_INET(28)
+    #[test]
+    fn test_peer_critical_offsets() {
+        assert_eq!(offset_of!(WireguardPeer, persistent_keepalive), 72,
+            "keepalive offset wrong");
+        assert_eq!(offset_of!(WireguardPeer, endpoint), 76,
+            "endpoint must be at 0x4c — matches C struct with Reserved2 padding");
+        assert_eq!(offset_of!(WireguardPeer, tx_bytes), 104,
+            "tx_bytes must be at 0x68");
+        assert_eq!(offset_of!(WireguardPeer, allowed_ips_count), 128,
+            "allowed_ips_count must be at 0x80");
+        assert_eq!(size_of::<WireguardPeer>(), 136,
+            "WireguardPeer must be 136 bytes (0x88)");
+    }
+
+    #[test]
+    fn test_interface_critical_offsets() {
+        assert_eq!(offset_of!(WireguardInterface, private_key), 6);
+        assert_eq!(offset_of!(WireguardInterface, public_key), 38);
+        assert_eq!(size_of::<WireguardInterface>(), 80,
+            "WireguardInterface must be 80 bytes (0x50)");
     }
 }
