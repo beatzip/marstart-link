@@ -3,13 +3,12 @@
     windows_subsystem = "windows"
 )]
 
-// ✅ 所有的 mod 声明必须且只能在这里
+// ✅ 1. 必须在根目录声明所有模块，包括 wireguard_serializer
 mod wireguard;
 mod wireguard_config;
 mod wireguard_parser;
-mod wireguard_serializer;
+mod wireguard_serializer; // ✅ 必须加上，因为 wireguard.rs 依赖它
 mod utils;
-mod network_config;
 
 use std::sync::Arc;
 use tauri::Manager;
@@ -22,7 +21,6 @@ fn main() {
     let app_data = std::env::var("APPDATA").unwrap_or_else(|_| ".".into());
     let log_dir = format!("{}\\GameAccelerator\\logs", app_data);
     let _ = std::fs::create_dir_all(&log_dir);
-
     let file_appender = rolling::daily(&log_dir, "app.log");
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
@@ -66,8 +64,7 @@ fn run_app() -> Result<(), Box<dyn std::error::Error>> {
         .invoke_handler(tauri::generate_handler![
             wireguard::tunnel_apply_config,
             wireguard::tunnel_disconnect,
-            wireguard::tunnel_get_status,
-            wireguard::tunnel_get_stats,   // ✅ добавлено
+            wireguard::tunnel_get_stats, // ✅ 2. 必须注册你新加的统计命令
         ])
         // ✅ 修复：generate_context!() 返回 Context 而不是 Result，不能加 ?
         .run(tauri::generate_context!())
