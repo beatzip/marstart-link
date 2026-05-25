@@ -1,6 +1,6 @@
 use std::net::SocketAddr;
 use windows::Win32::Networking::WinSock::{
-    AF_INET, AF_INET6, IN_ADDR, IN_ADDR_0, IN6_ADDR, SOCKADDR_INET,
+    ADDRESS_FAMILY, AF_INET, AF_INET6, IN_ADDR, IN_ADDR_0, IN6_ADDR, SOCKADDR_INET,
 };
 
 pub const WIREGUARD_KEY_LENGTH: usize = 32;
@@ -88,9 +88,8 @@ pub union WireguardIpAddress {
 #[derive(Clone, Copy)]
 pub struct WireguardAllowedIp {
     pub address: WireguardIpAddress,
-    pub address_family: u16,
+    pub address_family: ADDRESS_FAMILY,
     pub cidr: u8,
-    pub flags: WireguardAllowedIpFlag,
 }
 
 // ============================================================================
@@ -128,7 +127,7 @@ pub fn socket_addr_to_sockaddr_inet(addr: &SocketAddr) -> SOCKADDR_INET {
 mod abi_tests {
     use super::*;
     use memoffset::offset_of;
-    use std::mem::{size_of, align_of};
+    use std::mem::{align_of, size_of};
 
     #[test]
     fn test_alignment() {
@@ -138,13 +137,20 @@ mod abi_tests {
     }
 
     #[test]
-    fn test_sizes_and_offsets() {
+    fn test_offsets() {
+        assert_eq!(offset_of!(WireguardInterface, flags), 0);
+        assert_eq!(offset_of!(WireguardInterface, listen_port), 4);
+        assert_eq!(offset_of!(WireguardPeer, flags), 0);
+        assert_eq!(offset_of!(WireguardPeer, reserved), 4);
+        assert_eq!(offset_of!(WireguardAllowedIp, address), 0);
+        assert_eq!(offset_of!(WireguardAllowedIp, address_family), 16);
+        assert_eq!(offset_of!(WireguardAllowedIp, cidr), 18);
+    }
+
+    #[test]
+    fn print_sizes() {
         println!("Interface size: {}", size_of::<WireguardInterface>());
         println!("Peer size: {}", size_of::<WireguardPeer>());
         println!("AllowedIp size: {}", size_of::<WireguardAllowedIp>());
-        
-        assert_eq!(offset_of!(WireguardInterface, flags), 0);
-        assert_eq!(offset_of!(WireguardPeer, flags), 0);
-        assert_eq!(offset_of!(WireguardAllowedIp, address), 0);
     }
 }

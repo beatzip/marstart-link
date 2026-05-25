@@ -7,6 +7,7 @@
 mod wireguard;
 mod wireguard_config;
 mod wireguard_parser;
+mod wireguard_serializer;
 mod utils;
 
 use std::sync::Arc;
