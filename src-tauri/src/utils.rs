@@ -2,7 +2,7 @@ use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use tauri::AppHandle;
 use windows::Win32::NetworkManagement::IpHelper::{
-    InitializeIpForwardEntry, MIB_IPFORWARD_ROW2, MIB_IPPROTO_NETMGMT,
+    InitializeIpForwardEntry, MIB_IPFORWARD_ROW2,
 };
 use windows::Win32::Networking::WinSock::AF_INET;
 
@@ -49,7 +49,7 @@ pub unsafe fn create_forward_row(
     row.DestinationPrefix.Prefix.si_family = AF_INET;
     row.DestinationPrefix.Prefix.Ipv4.sin_addr.S_un.S_addr = u32::from_ne_bytes(ip.octets());
     row.DestinationPrefix.PrefixLength = prefix_len;
-    row.Protocol = MIB_IPPROTO_NETMGMT;
+    row.Protocol = windows::Win32::NetworkManagement::IpHelper::NL_ROUTE_PROTOCOL::RouteProtocolNetMgmt;
     row.Metric = 8;
 
     row
