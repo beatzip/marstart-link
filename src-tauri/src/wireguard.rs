@@ -1,5 +1,6 @@
 // ✅ 绝对不要在这里写 mod xxx; 只能 use crate::xxx;
 use crate::wireguard_parser;
+use crate::wireguard_serializer::{hexdump, serialize_config};
 use std::ffi::{c_void, OsStr};
 use std::os::windows::ffi::OsStrExt;
 use std::sync::{Arc, Mutex};
@@ -148,24 +149,27 @@ impl WireGuardDll {
         unsafe {
             let mut size: u32 = 0;
             let _ = (self.get_configuration_fn)(handle.0, std::ptr::null_mut(), &mut size);
-            
             if size == 0 {
                 return Err("WireGuardGetConfiguration: failed to get required size".into());
             }
 
-            let mut buffer = vec![0u8; size as usize];
-            let result = (self.get_configuration_fn)(
-                handle.0,
-                buffer.as_mut_ptr(),
-                &mut size,
-            );
-            
-            if result == 0 {
-                Err("WireGuardGetConfiguration: failed to read config".into())
-            } else {
-                buffer.truncate(size as usize);
-                Ok(buffer)
+            const ERROR_MORE_DATA: i32 = 234;
+            for _ in 0..5 {
+                let mut buffer = vec![0u8; size as usize];
+                let result = (self.get_configuration_fn)(handle.0, buffer.as_mut_ptr(), &mut size);
+                if result != 0 {
+                    buffer.truncate(size as usize);
+                    return Ok(buffer);
+                }
+
+                let err = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
+                if err == ERROR_MORE_DATA {
+                    continue;
+                }
+                return Err(format!("WireGuardGetConfiguration failed with OS error: {}", err));
             }
+
+            Err("WireGuardGetConfiguration: failed after 5 retries (ERROR_MORE_DATA loop)".into())
         }
     }
 }
@@ -203,10 +207,13 @@ pub async fn tunnel_apply_config(
     adapter_name: String,
     expected_routes: Vec<String>,
 ) -> Result<TunnelStatus, String> {
-    let parsed_config = wireguard_parser::parse_wireguard_config(&config_content)?;
+    let parsed_config = tokio::task::spawn_blocking({
+        let content = config_content.clone();
+        move || wireguard_parser::parse_wireguard_config(&content)
+    })
+    .await
+    .map_err(|e| format!("Config parse task failed: {e}"))??;
     tracing::info!("✅ Config parsed successfully: {} peers", parsed_config.peers.len());
-
-    tracing::warn!("⚠️ Config parsed but NOT applied to driver yet (TODO: Serializer)");
 
     let interface_index = {
         let mut adapter_lock = state.adapter.lock().unwrap_or_else(|p| p.into_inner());
@@ -217,10 +224,16 @@ pub async fn tunnel_apply_config(
         }
 
         let handle = state.dll.create_adapter(&adapter_name, "GameAccelerator")?;
-        
-        if let Err(e) = state.dll.set_state(handle, WireGuardAdapterState::Up) {
+
+        let blob = serialize_config(&parsed_config)?;
+        tracing::info!("WG blob size = {} bytes", blob.len());
+        tracing::debug!("WG blob hexdump:
+{}", hexdump(&blob, 128));
+
+        if let Err(e) = state.dll.set_configuration(handle, &blob) {
+            let _ = state.dll.set_state(handle, WireGuardAdapterState::Down);
             state.dll.close_adapter(handle);
-            return Err(e);
+            return Err(format!("WireGuardSetConfiguration failed: {}", e));
         }
 
         let luid = state.dll.get_adapter_luid(handle);
@@ -232,6 +245,12 @@ pub async fn tunnel_apply_config(
                 return Err(e);
             }
         };
+
+        if let Err(e) = state.dll.set_state(handle, WireGuardAdapterState::Up) {
+            let _ = state.dll.set_state(handle, WireGuardAdapterState::Down);
+            state.dll.close_adapter(handle);
+            return Err(e);
+        }
 
         *adapter_lock = Some(handle);
         if_idx
