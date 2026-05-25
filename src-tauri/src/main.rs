@@ -3,12 +3,11 @@
     windows_subsystem = "windows"
 )]
 
-// ✅ Все модули объявляются ТОЛЬКО здесь, в корне крейта
+// ✅ 所有的 mod 声明必须且只能在这里
 mod wireguard;
 mod wireguard_config;
 mod wireguard_parser;
 mod utils;
-// mod multipath;
 
 use std::sync::Arc;
 use tauri::Manager;
@@ -18,7 +17,6 @@ use crate::utils::resolve_dll_path;
 use crate::wireguard::{WireGuardDll, TunnelState};
 
 fn main() {
-    // Создаём директорию для логов заранее
     let app_data = std::env::var("APPDATA").unwrap_or_else(|_| ".".into());
     let log_dir = format!("{}\\GameAccelerator\\logs", app_data);
     let _ = std::fs::create_dir_all(&log_dir);
@@ -67,14 +65,13 @@ fn run_app() -> Result<(), Box<dyn std::error::Error>> {
             wireguard::tunnel_apply_config,
             wireguard::tunnel_disconnect,
         ])
-        // ✅ ИСПРАВЛЕНО: generate_context!() возвращает Context, а не Result. Знак `?` здесь вызывал ошибку E0277.
+        // ✅ 修复：generate_context!() 返回 Context 而不是 Result，不能加 ?
         .run(tauri::generate_context!())
         .map_err(|e| format!("Tauri runtime error: {}", e))?;
 
     Ok(())
 }
 
-// Нативный Windows MessageBox для вывода ошибок
 fn show_error_dialog(message: &str) {
     #[cfg(target_os = "windows")]
     {

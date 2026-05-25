@@ -1,9 +1,9 @@
+// ✅ 绝对不要在这里写 mod xxx; 只能 use crate::xxx;
 use crate::wireguard_parser;
 use std::ffi::{c_void, OsStr};
 use std::os::windows::ffi::OsStrExt;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-
 use libloading::Library;
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -16,18 +16,11 @@ use windows::Win32::NetworkManagement::Ndis::{IfOperStatusUp, NET_LUID_LH};
 use windows::Win32::Networking::WinSock::AF_INET;
 use crate::utils::{create_forward_row, parse_cidr};
 
-// ============================================================================
-// Newtype для Send + Sync (сырой указатель на handle адаптера)
-// ============================================================================
 #[derive(Clone, Copy)]
 pub struct WireGuardAdapterHandle(*mut c_void);
-
 unsafe impl Send for WireGuardAdapterHandle {}
 unsafe impl Sync for WireGuardAdapterHandle {}
 
-// ============================================================================
-// WireGuard Adapter State (из wireguard.h)
-// ============================================================================
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WireGuardAdapterState {
@@ -35,42 +28,31 @@ pub enum WireGuardAdapterState {
     Up = 1,
 }
 
-// ============================================================================
-// FFI Type Aliases (точные сигнатуры из wireguard.h)
-// ============================================================================
 type WireGuardCreateAdapterFn = unsafe extern "system" fn(
     name: *const u16,
     tunnel_type: *const u16,
     requested_guid: *const c_void,
 ) -> *mut c_void;
-
 type WireGuardCloseAdapterFn = unsafe extern "system" fn(adapter: *mut c_void);
-
 type WireGuardSetStateFn = unsafe extern "system" fn(
     adapter: *mut c_void,
     state: WireGuardAdapterState,
 ) -> i32;
-
 type WireGuardGetAdapterLuidFn = unsafe extern "system" fn(
     adapter: *mut c_void,
     luid: *mut NET_LUID_LH,
 );
-
 type WireGuardSetConfigurationFn = unsafe extern "system" fn(
     adapter: *mut c_void,
     bytes: *const u8,
     size: u32,
 ) -> i32;
-
 type WireGuardGetConfigurationFn = unsafe extern "system" fn(
     adapter: *mut c_void,
     bytes: *mut u8,
     size: *mut u32,
 ) -> i32;
 
-// ============================================================================
-// WireGuard DLL Wrapper
-// ============================================================================
 pub struct WireGuardDll {
     _lib: Library,
     create_adapter_fn: WireGuardCreateAdapterFn,
@@ -85,10 +67,9 @@ impl WireGuardDll {
     pub fn load(path: &str) -> Result<Self, String> {
         unsafe {
             let lib = Library::new(path).map_err(|e| format!("Failed to load DLL: {e}"))?;
-            
-            // ✅ ИСПРАВЛЕНО: убраны лишние пробелы в байтовых строках и исправлено имя WireGuardSetAdapterState
             let create_adapter_fn = *lib.get(b"WireGuardCreateAdapter").map_err(|e| format!("Symbol not found: {e}"))?;
             let close_adapter_fn = *lib.get(b"WireGuardCloseAdapter").map_err(|e| format!("Symbol not found: {e}"))?;
+            // ✅ 修复：根据 wireguard.h，正确的导出名是 WireGuardSetAdapterState
             let set_state_fn = *lib.get(b"WireGuardSetAdapterState").map_err(|e| format!("Symbol not found: {e}"))?;
             let get_adapter_luid_fn = *lib.get(b"WireGuardGetAdapterLUID").map_err(|e| format!("Symbol not found: {e}"))?;
             let set_configuration_fn = *lib.get(b"WireGuardSetConfiguration").map_err(|e| format!("Symbol not found: {e}"))?;
@@ -113,7 +94,7 @@ impl WireGuardDll {
         unsafe {
             let handle = (self.create_adapter_fn)(
                 name_wide.as_ptr(),
-                tunnel_type_wide.as_ptr(), // ✅ ИСПРАВЛЕНО: опечатка tunnel_ type_wide
+                tunnel_type_wide.as_ptr(),
                 std::ptr::null(),
             );
             if handle.is_null() {
@@ -155,7 +136,7 @@ impl WireGuardDll {
                 bytes.len() as u32,
             );
             if result == 0 {
-                Err("WireGuardSetConfiguration failed (check flags, layout, key lengths)".into())
+                Err("WireGuardSetConfiguration failed".into())
             } else {
                 Ok(())
             }
@@ -189,9 +170,6 @@ impl WireGuardDll {
     }
 }
 
-// ============================================================================
-// Tunnel State
-// ============================================================================
 pub struct TunnelState {
     pub dll: Arc<WireGuardDll>,
     pub adapter: Arc<Mutex<Option<WireGuardAdapterHandle>>>,
@@ -210,9 +188,6 @@ impl TunnelState {
     }
 }
 
-// ============================================================================
-// Tauri IPC Types
-// ============================================================================
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct TunnelStatus {
     pub is_active: bool,
@@ -221,9 +196,6 @@ pub struct TunnelStatus {
     pub mtu: Option<u32>,
 }
 
-// ============================================================================
-// Tauri Commands
-// ============================================================================
 #[tauri::command]
 pub async fn tunnel_apply_config(
     state: State<'_, TunnelState>,
@@ -231,21 +203,13 @@ pub async fn tunnel_apply_config(
     adapter_name: String,
     expected_routes: Vec<String>,
 ) -> Result<TunnelStatus, String> {
-    // ✅ ШАГ 1: Парсим и валидируем конфиг
     let parsed_config = wireguard_parser::parse_wireguard_config(&config_content)?;
-    tracing::info!(
-        "✅ Config parsed successfully: {} peers, endpoint: {:?}",
-        parsed_config.peers.len(),
-        parsed_config.peers.first().and_then(|p| p.endpoint)
-    );
+    tracing::info!("✅ Config parsed successfully: {} peers", parsed_config.peers.len());
 
-    // ⚠️ ВРЕМЕННО: binary blob serializer ещё не написан
     tracing::warn!("⚠️ Config parsed but NOT applied to driver yet (TODO: Serializer)");
 
     let interface_index = {
-        // ✅ ИСПРАВЛЕНО: unwrap_or_else защищает от Mutex Poisoning
-        let mut adapter_lock = state.adapter.lock()
-            .unwrap_or_else(|p| p.into_inner()); // ✅ ИСПРАВЛЕНО: опечатка into_inne r()
+        let mut adapter_lock = state.adapter.lock().unwrap_or_else(|p| p.into_inner());
 
         if let Some(old_handle) = adapter_lock.take() {
             let _ = state.dll.set_state(old_handle, WireGuardAdapterState::Down);
@@ -295,9 +259,7 @@ pub async fn tunnel_apply_config(
 
 #[tauri::command]
 pub async fn tunnel_disconnect(state: State<'_, TunnelState>) -> Result<(), String> {
-    let mut adapter_lock = state.adapter.lock()
-        .unwrap_or_else(|p| p.into_inner());
-        
+    let mut adapter_lock = state.adapter.lock().unwrap_or_else(|p| p.into_inner());
     if let Some(handle) = adapter_lock.take() {
         let _ = state.dll.set_state(handle, WireGuardAdapterState::Down);
         state.dll.close_adapter(handle);
@@ -305,9 +267,6 @@ pub async fn tunnel_disconnect(state: State<'_, TunnelState>) -> Result<(), Stri
     Ok(())
 }
 
-// ============================================================================
-// Panic Hook
-// ============================================================================
 pub fn setup_panic_hook(
     dll: Arc<WireGuardDll>,
     adapter_state: Arc<Mutex<Option<WireGuardAdapterHandle>>>,
@@ -329,9 +288,6 @@ pub fn setup_panic_hook(
     }));
 }
 
-// ============================================================================
-// Helper Functions
-// ============================================================================
 fn luid_to_index(luid: NET_LUID_LH) -> Result<u32, String> {
     unsafe {
         let mut index = 0u32;
@@ -343,8 +299,7 @@ fn luid_to_index(luid: NET_LUID_LH) -> Result<u32, String> {
 
 async fn wait_for_interface_up(interface_index: u32, timeout: Duration) -> Result<(), String> {
     let start = Instant::now();
-    let mut delay_ms = 100u64; 
-    
+    let mut delay_ms = 100u64;
     while start.elapsed() < timeout {
         unsafe {
             let mut row: MIB_IF_ROW2 = std::mem::zeroed();
@@ -354,7 +309,7 @@ async fn wait_for_interface_up(interface_index: u32, timeout: Duration) -> Resul
             }
         }
         tokio::time::sleep(Duration::from_millis(delay_ms)).await;
-        delay_ms = (delay_ms * 2).min(500); 
+        delay_ms = (delay_ms * 2).min(500);
     }
     Err("Timeout waiting for interface to become UP".into())
 }
@@ -365,11 +320,9 @@ fn set_interface_mtu(interface_index: u32, mtu: u32) -> Result<(), String> {
         InitializeIpInterfaceEntry(&mut row);
         row.InterfaceIndex = interface_index;
         row.Family = AF_INET;
-        
         if GetIpInterfaceEntry(&mut row).is_err() {
             return Err("GetIpInterfaceEntry failed".into());
         }
-        
         row.NlMtu = mtu;
         if SetIpInterfaceEntry(&mut row).is_err() {
             return Err("SetIpInterfaceEntry (MTU) failed".into());
@@ -382,7 +335,6 @@ fn force_route_metrics(interface_index: u32, expected_cidrs: &[String]) -> Resul
     if expected_cidrs.len() > 50 {
         return Err("Too many routes (max 50)".into());
     }
-    
     for cidr in expected_cidrs {
         let (ip, prefix_len) = parse_cidr(cidr)?;
         if let std::net::IpAddr::V4(ipv4) = ip {
