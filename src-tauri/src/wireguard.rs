@@ -1,5 +1,4 @@
-// ✅ ИСПРАВЛЕНО: pub mod перенесены в main.rs, здесь только use crate::
-// wireguard_config используется только через wireguard_parser — прямой импорт не нужен
+// ✅ ИСПРАВЛЕНО: Никаких `pub mod` здесь быть не должно! Только импорты.
 use crate::wireguard_parser;
 
 use std::ffi::{c_void, OsStr};
@@ -7,10 +6,11 @@ use std::os::windows::ffi::OsStrExt;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-// ✅ ИСПРАВЛЕНО: убран неиспользуемый Symbol (был warning → в CI станет error)
+// ✅ ИСПРАВЛЕНО: убран неиспользуемый Symbol
 use libloading::Library;
 use serde::{Deserialize, Serialize};
 use tauri::State;
+
 use windows::Win32::NetworkManagement::IpHelper::{
     ConvertInterfaceLuidToIndex, GetIfEntry2, GetIpForwardEntry2, GetIpInterfaceEntry,
     InitializeIpInterfaceEntry, SetIpForwardEntry2, SetIpInterfaceEntry, MIB_IF_ROW2,
@@ -18,7 +18,6 @@ use windows::Win32::NetworkManagement::IpHelper::{
 };
 use windows::Win32::NetworkManagement::Ndis::{IfOperStatusUp, NET_LUID_LH};
 use windows::Win32::Networking::WinSock::AF_INET;
-
 use crate::utils::{create_forward_row, parse_cidr};
 
 // ============================================================================
@@ -26,7 +25,6 @@ use crate::utils::{create_forward_row, parse_cidr};
 // ============================================================================
 #[derive(Clone, Copy)]
 pub struct WireGuardAdapterHandle(*mut c_void);
-
 unsafe impl Send for WireGuardAdapterHandle {}
 unsafe impl Sync for WireGuardAdapterHandle {}
 
@@ -90,10 +88,12 @@ impl WireGuardDll {
     pub fn load(path: &str) -> Result<Self, String> {
         unsafe {
             let lib = Library::new(path).map_err(|e| format!("Failed to load DLL: {e}"))?;
-
             let create_adapter_fn = *lib.get(b"WireGuardCreateAdapter").map_err(|e| format!("Symbol not found: {e}"))?;
             let close_adapter_fn = *lib.get(b"WireGuardCloseAdapter").map_err(|e| format!("Symbol not found: {e}"))?;
-            let set_state_fn = *lib.get(b"WireGuardSetState").map_err(|e| format!("Symbol not found: {e}"))?;
+            
+            // ✅ ИСПРАВЛЕНО: В wireguard.h функция называется именно WireGuardSetAdapterState
+            let set_state_fn = *lib.get(b"WireGuardSetAdapterState").map_err(|e| format!("Symbol not found: {e}"))?;
+            
             let get_adapter_luid_fn = *lib.get(b"WireGuardGetAdapterLUID").map_err(|e| format!("Symbol not found: {e}"))?;
             let set_configuration_fn = *lib.get(b"WireGuardSetConfiguration").map_err(|e| format!("Symbol not found: {e}"))?;
             let get_configuration_fn = *lib.get(b"WireGuardGetConfiguration").map_err(|e| format!("Symbol not found: {e}"))?;
@@ -136,7 +136,7 @@ impl WireGuardDll {
         unsafe {
             let result = (self.set_state_fn)(handle.0, state);
             if result == 0 {
-                Err("WireGuardSetState failed".into())
+                Err("WireGuardSetAdapterState failed".into())
             } else {
                 Ok(())
             }
@@ -235,21 +235,15 @@ pub async fn tunnel_apply_config(
     adapter_name: String,
     expected_routes: Vec<String>,
 ) -> Result<TunnelStatus, String> {
-    // ✅ ШАГ 1: Парсим и валидируем конфиг (Base64, DNS, CIDR)
-    // ⚠️ DNS-резолвинг в parse_endpoint блокирует tokio-поток
-    //    TODO: обернуть в tokio::task::spawn_blocking
+    
     let parsed_config = wireguard_parser::parse_wireguard_config(&config_content)?;
     tracing::info!("✅ Config parsed successfully: {} peers, endpoint: {:?}", 
         parsed_config.peers.len(), 
         parsed_config.peers.first().and_then(|p| p.endpoint));
 
-    // ⚠️ ВРЕМЕННО: binary blob serializer ещё не написан
-    // let blob = wireguard_serializer::serialize_config(&parsed_config)?;
-    // state.dll.set_configuration(handle, &blob)?;
     tracing::warn!("⚠️ Config parsed but NOT applied to driver yet (TODO: Serializer)");
 
     let interface_index = {
-        // ✅ ИСПРАВЛЕНО: unwrap_or_else защищает от Mutex Poisoning
         let mut adapter_lock = state.adapter.lock()
             .unwrap_or_else(|p| p.into_inner());
 
@@ -260,7 +254,6 @@ pub async fn tunnel_apply_config(
 
         let handle = state.dll.create_adapter(&adapter_name, "GameAccelerator")?;
         
-        // ✅ ИСПРАВЛЕНО: cleanup при ошибке set_state
         if let Err(e) = state.dll.set_state(handle, WireGuardAdapterState::Up) {
             state.dll.close_adapter(handle);
             return Err(e);
@@ -270,7 +263,6 @@ pub async fn tunnel_apply_config(
         let if_idx = match luid_to_index(luid) {
             Ok(idx) => idx,
             Err(e) => {
-                // ✅ Cleanup при ошибке конвертации
                 let _ = state.dll.set_state(handle, WireGuardAdapterState::Down);
                 state.dll.close_adapter(handle);
                 return Err(e);
@@ -281,7 +273,6 @@ pub async fn tunnel_apply_config(
         if_idx
     };
 
-    // ✅ ИСПРАВЛЕНО: cleanup зомби-адаптера при таймауте
     if let Err(e) = wait_for_interface_up(interface_index, Duration::from_secs(15)).await {
         let mut adapter_lock = state.adapter.lock().unwrap_or_else(|p| p.into_inner());
         if let Some(handle) = adapter_lock.take() {
@@ -304,9 +295,9 @@ pub async fn tunnel_apply_config(
 
 #[tauri::command]
 pub async fn tunnel_disconnect(state: State<'_, TunnelState>) -> Result<(), String> {
-    // ✅ ИСПРАВЛЕНО: unwrap_or_else защищает от Mutex Poisoning
     let mut adapter_lock = state.adapter.lock()
         .unwrap_or_else(|p| p.into_inner());
+
     if let Some(handle) = adapter_lock.take() {
         let _ = state.dll.set_state(handle, WireGuardAdapterState::Down);
         state.dll.close_adapter(handle);
@@ -322,7 +313,6 @@ pub fn setup_panic_hook(
     adapter_state: Arc<Mutex<Option<WireGuardAdapterHandle>>>,
 ) {
     let default_hook = std::panic::take_hook();
-
     std::panic::set_hook(Box::new(move |info| {
         tracing::error!("💥 CRITICAL PANIC: {:?}", info);
         tracing::info!("Executing emergency network cleanup...");
@@ -353,7 +343,7 @@ fn luid_to_index(luid: NET_LUID_LH) -> Result<u32, String> {
 
 async fn wait_for_interface_up(interface_index: u32, timeout: Duration) -> Result<(), String> {
     let start = Instant::now();
-    let mut delay_ms = 100u64; // ✅ Начинаем с 100мс, растём до 500мс
+    let mut delay_ms = 100u64;
     while start.elapsed() < timeout {
         unsafe {
             let mut row: MIB_IF_ROW2 = std::mem::zeroed();
@@ -363,7 +353,7 @@ async fn wait_for_interface_up(interface_index: u32, timeout: Duration) -> Resul
             }
         }
         tokio::time::sleep(Duration::from_millis(delay_ms)).await;
-        delay_ms = (delay_ms * 2).min(500); // exponential backoff, cap at 500ms
+        delay_ms = (delay_ms * 2).min(500);
     }
     Err("Timeout waiting for interface to become UP".into())
 }
@@ -386,7 +376,6 @@ fn set_interface_mtu(interface_index: u32, mtu: u32) -> Result<(), String> {
 }
 
 fn force_route_metrics(interface_index: u32, expected_cidrs: &[String]) -> Result<(), String> {
-    // ✅ Лимит на количество маршрутов (защита от resource exhaustion)
     if expected_cidrs.len() > 50 {
         return Err("Too many routes (max 50)".into());
     }

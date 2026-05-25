@@ -3,25 +3,25 @@
     windows_subsystem = "windows"
 )]
 
+// ✅ Все модули объявляются ТОЛЬКО здесь, в корне крейта
 mod wireguard;
-mod wireguard_config;   // ✅ ИСПРАВЛЕНО: перенесено из wireguard.rs сюда
-mod wireguard_parser;   // ✅ ИСПРАВЛЕНО: перенесено из wireguard.rs сюда
+mod wireguard_config;
+mod wireguard_parser;
 mod utils;
-// mod multipath;       // Раскомментировать когда будет нужен
+// mod multipath;
 
 use std::sync::Arc;
 use tauri::Manager;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use tracing_appender::rolling;
-
 use crate::utils::resolve_dll_path;
 use crate::wireguard::{WireGuardDll, TunnelState};
 
 fn main() {
-    // ✅ Создаём директорию заранее — иначе rolling::daily паникует на первой записи
+    // Создаём директорию для логов заранее
     let app_data = std::env::var("APPDATA").unwrap_or_else(|_| ".".into());
     let log_dir = format!("{}\\GameAccelerator\\logs", app_data);
-    let _ = std::fs::create_dir_all(&log_dir); // silently ignore if exists
+    let _ = std::fs::create_dir_all(&log_dir);
 
     let file_appender = rolling::daily(&log_dir, "app.log");
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
@@ -45,7 +45,6 @@ fn run_app() -> Result<(), Box<dyn std::error::Error>> {
     tauri::Builder::default()
         .setup(|app| {
             let handle = app.handle();
-           
             let dll_path = resolve_dll_path(&handle, "wireguard.dll")
                 .map_err(|e| format!("DLL not found: {}", e))?;
             let dll_path_str = dll_path.to_str()
@@ -68,7 +67,7 @@ fn run_app() -> Result<(), Box<dyn std::error::Error>> {
             wireguard::tunnel_apply_config,
             wireguard::tunnel_disconnect,
         ])
-        // ✅ ИСПРАВЛЕНО: убран ? — generate_context!() возвращает Context, не Result
+        // ✅ ИСПРАВЛЕНО: generate_context!() возвращает Context, а не Result. Знак `?` здесь вызывал ошибку E0277.
         .run(tauri::generate_context!())
         .map_err(|e| format!("Tauri runtime error: {}", e))?;
 
