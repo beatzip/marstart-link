@@ -1,148 +1,128 @@
-use crate::wireguard_config::{
-    socket_addr_to_sockaddr_inet, ParsedConfig, ParsedPeer,
-    WireguardAllowedIp, WireguardInterface, WireguardIpAddress, WireguardPeer,
-    WIREGUARD_INTERFACE_HAS_LISTEN_PORT, WIREGUARD_INTERFACE_HAS_PRIVATE_KEY,
-    WIREGUARD_INTERFACE_REPLACE_PEERS,
-    WIREGUARD_PEER_HAS_ENDPOINT, WIREGUARD_PEER_HAS_PERSISTENT_KEEPALIVE,
-    WIREGUARD_PEER_HAS_PRESHARED_KEY, WIREGUARD_PEER_HAS_PUBLIC_KEY,
-    WIREGUARD_PEER_REPLACE_ALLOWED_IPS,
-};
-use std::mem;
+use crate::wireguard_config::*;
+use std::mem::size_of;
 use std::net::IpAddr;
-use windows::Win32::Networking::WinSock::{AF_INET, AF_INET6, IN6_ADDR, IN6_ADDR_0, IN_ADDR, IN_ADDR_0};
+use windows::Win32::Networking::WinSock::{AF_INET, AF_INET6, IN_ADDR, IN_ADDR_0, IN6_ADDR};
 
-struct AlignedBlob {
-    inner: Vec<u64>,
-    len_bytes: usize,
-}
-
-impl AlignedBlob {
-    fn new() -> Self {
-        Self { inner: Vec::new(), len_bytes: 0 }
-    }
-
-    fn push<T: Copy>(&mut self, value: &T) {
-        let size = mem::size_of::<T>();
-        let src = value as *const T as *const u8;
-        let bytes = unsafe { std::slice::from_raw_parts(src, size) };
-
-        let required_u64s = (self.len_bytes + size + 7) / 8;
-        if self.inner.len() < required_u64s {
-            self.inner.resize(required_u64s, 0);
-        }
-
-        unsafe {
-            let dst = (self.inner.as_mut_ptr() as *mut u8).add(self.len_bytes);
-            std::ptr::copy_nonoverlapping(bytes.as_ptr(), dst, size);
-        }
-        self.len_bytes += size;
-    }
-
-    fn as_bytes(&self) -> &[u8] {
-        unsafe { std::slice::from_raw_parts(self.inner.as_ptr() as *const u8, self.len_bytes) }
-    }
-}
-
-#[inline]
-fn ip_to_allowed_ip(ip: IpAddr, cidr: u8) -> WireguardAllowedIp {
-    let mut out: WireguardAllowedIp = unsafe { mem::zeroed() };
-    match ip {
-        IpAddr::V4(v4) => {
-            out.address = WireguardIpAddress {
-                v4: IN_ADDR {
-                    S_un: IN_ADDR_0 { S_addr: u32::from_be_bytes(v4.octets()) },
-                },
-            };
-            out.address_family = AF_INET;
-        }
-        IpAddr::V6(v6) => {
-            out.address = WireguardIpAddress {
-                v6: IN6_ADDR {
-                    u: IN6_ADDR_0 { Byte: v6.octets() },
-                },
-            };
-            out.address_family = AF_INET6;
-        }
-    }
-    out.cidr = cidr;
-    out
-}
-
-fn build_interface(config: &ParsedConfig) -> WireguardInterface {
-    let mut iface: WireguardInterface = unsafe { mem::zeroed() };
-    iface.flags = WIREGUARD_INTERFACE_REPLACE_PEERS | WIREGUARD_INTERFACE_HAS_PRIVATE_KEY;
-    iface.private_key = config.private_key;
-    if let Some(port) = config.listen_port {
-        iface.listen_port = port;
-        iface.flags |= WIREGUARD_INTERFACE_HAS_LISTEN_PORT;
-    }
-    iface.peers_count = config.peers.len() as u32;
-    iface
-}
-
-fn build_peer(peer: &ParsedPeer) -> WireguardPeer {
-    let mut out: WireguardPeer = unsafe { mem::zeroed() };
-    out.flags = WIREGUARD_PEER_HAS_PUBLIC_KEY | WIREGUARD_PEER_REPLACE_ALLOWED_IPS;
-    out.public_key = peer.public_key;
-
-    if let Some(psk) = peer.preshared_key {
-        out.preshared_key = psk;
-        out.flags |= WIREGUARD_PEER_HAS_PRESHARED_KEY;
-    }
-    if let Some(keepalive) = peer.persistent_keepalive {
-        out.persistent_keepalive = keepalive;
-        out.flags |= WIREGUARD_PEER_HAS_PERSISTENT_KEEPALIVE;
-    }
-    if let Some(endpoint) = &peer.endpoint {
-        out.endpoint = socket_addr_to_sockaddr_inet(endpoint);
-        out.flags |= WIREGUARD_PEER_HAS_ENDPOINT;
-    }
-
-    out.allowed_ips_count = peer.allowed_ips.len() as u32;
-    out
-}
-
+/// Преобразует ParsedConfig в бинарный blob для WireGuardSetConfiguration
 pub fn serialize_config(config: &ParsedConfig) -> Result<Vec<u8>, String> {
-    debug_assert_eq!(mem::align_of::<WireguardInterface>(), 8);
-    debug_assert_eq!(mem::align_of::<WireguardPeer>(), 8);
-    debug_assert_eq!(mem::align_of::<WireguardAllowedIp>(), 8);
-
-    let estimated_size = mem::size_of::<WireguardInterface>()
-        + config.peers.len() * mem::size_of::<WireguardPeer>()
-        + config.peers.iter().map(|p| p.allowed_ips.len() * mem::size_of::<WireguardAllowedIp>()).sum::<usize>();
-
-    let mut blob = AlignedBlob::new();
-    blob.inner.reserve((estimated_size + 7) / 8);
-
-    let iface = build_interface(config);
-    blob.push(&iface);
-
+    // 1. Считаем общий размер памяти
+    let mut total_size = size_of::<WireguardInterface>();
     for peer in &config.peers {
-        let peer_blob = build_peer(peer);
-        blob.push(&peer_blob);
+        total_size += size_of::<WireguardPeer>();
+        total_size += peer.allowed_ips.len() * size_of::<WireguardAllowedIp>();
+    }
+
+    let mut blob = vec![0u8; total_size];
+    let mut offset = 0;
+
+    // 2. Заполняем Interface
+    let mut iface_flags = WIREGUARD_INTERFACE_HAS_PRIVATE_KEY | WIREGUARD_INTERFACE_REPLACE_PEERS;
+    if config.listen_port.is_some() {
+        iface_flags |= WIREGUARD_INTERFACE_HAS_LISTEN_PORT;
+    }
+
+    let iface = WireguardInterface {
+        flags: iface_flags,
+        listen_port: config.listen_port.unwrap_or(0),
+        private_key: config.private_key,
+        public_key: [0u8; WIREGUARD_KEY_LENGTH], // Драйвер сам вычислит публичный ключ
+        peers_count: config.peers.len() as u32,
+    };
+    
+    let iface_bytes: &[u8] = unsafe { 
+        std::slice::from_raw_parts((&iface as *const WireguardInterface) as *const u8, size_of::<WireguardInterface>()) 
+    };
+    blob[offset..offset + size_of::<WireguardInterface>()].copy_from_slice(iface_bytes);
+    offset += size_of::<WireguardInterface>();
+
+    // 3. Заполняем Peers и AllowedIPs
+    for peer in &config.peers {
+        let mut peer_flags = WIREGUARD_PEER_HAS_PUBLIC_KEY | WIREGUARD_PEER_REPLACE_ALLOWED_IPS;
+        if peer.preshared_key.is_some() { peer_flags |= WIREGUARD_PEER_HAS_PRESHARED_KEY; }
+        if peer.persistent_keepalive.is_some() { peer_flags |= WIREGUARD_PEER_HAS_PERSISTENT_KEEPALIVE; }
+        if peer.endpoint.is_some() { peer_flags |= WIREGUARD_PEER_HAS_ENDPOINT; }
+
+        let endpoint = peer.endpoint.map(|e| socket_addr_to_sockaddr_inet(&e)).unwrap_or_else(|| unsafe { std::mem::zeroed() });
+
+        let wg_peer = WireguardPeer {
+            flags: peer_flags,
+            reserved: 0,
+            public_key: peer.public_key,
+            preshared_key: peer.preshared_key.unwrap_or([0u8; WIREGUARD_KEY_LENGTH]),
+            persistent_keepalive: peer.persistent_keepalive.unwrap_or(0),
+            endpoint,
+            tx_bytes: 0,
+            rx_bytes: 0,
+            last_handshake: 0,
+            allowed_ips_count: peer.allowed_ips.len() as u32,
+        };
+
+        let peer_bytes: &[u8] = unsafe {
+            std::slice::from_raw_parts((&wg_peer as *const WireguardPeer) as *const u8, size_of::<WireguardPeer>())
+        };
+        blob[offset..offset + size_of::<WireguardPeer>()].copy_from_slice(peer_bytes);
+        offset += size_of::<WireguardPeer>();
 
         for allowed_ip in &peer.allowed_ips {
-            let ip_blob = ip_to_allowed_ip(allowed_ip.address, allowed_ip.cidr);
-            blob.push(&ip_blob);
+            let (address, address_family) = match allowed_ip.address {
+                IpAddr::V4(ipv4) => {
+                    let mut addr: WireguardIpAddress = unsafe { std::mem::zeroed() };
+                    addr.v4 = IN_ADDR { S_un: IN_ADDR_0 { S_addr: u32::from_be_bytes(ipv4.octets()) } };
+                    (addr, AF_INET)
+                }
+                IpAddr::V6(ipv6) => {
+                    let mut addr: WireguardIpAddress = unsafe { std::mem::zeroed() };
+                    addr.v6 = IN6_ADDR { u: windows::Win32::Networking::WinSock::IN6_ADDR_0 { Byte: ipv6.octets() } };
+                    (addr, AF_INET6)
+                }
+            };
+
+            let wg_allowed_ip = WireguardAllowedIp {
+                address,
+                address_family,
+                cidr: allowed_ip.cidr,
+                flags: 0, // 0 = Add/Update
+            };
+
+            let ip_bytes: &[u8] = unsafe {
+                std::slice::from_raw_parts((&wg_allowed_ip as *const WireguardAllowedIp) as *const u8, size_of::<WireguardAllowedIp>())
+            };
+            blob[offset..offset + size_of::<WireguardAllowedIp>()].copy_from_slice(ip_bytes);
+            offset += size_of::<WireguardAllowedIp>();
         }
     }
 
-    Ok(blob.as_bytes().to_vec())
+    Ok(blob)
 }
 
-pub fn hexdump(data: &[u8], limit: usize) -> String {
-    let mut out = String::new();
-    for (i, byte) in data.iter().take(limit).enumerate() {
-        if i % 16 == 0 {
-            if i > 0 {
-                out.push('\n');
-            }
-            out.push_str(&format!("{:04x}: ", i));
+/// Вспомогательная функция для отладки (Hexdump)
+pub fn hexdump(data: &[u8], max_bytes: usize) -> String {
+    let mut s = String::new();
+    let len = data.len().min(max_bytes);
+    for (i, chunk) in data[..len].chunks(16).enumerate() {
+        s.push_str(&format!("{:08x}  ", i * 16));
+        for (j, byte) in chunk.iter().enumerate() {
+            s.push_str(&format!("{:02x} ", byte));
+            if j == 7 { s.push(' '); }
         }
-        out.push_str(&format!("{:02x} ", byte));
+        if chunk.len() < 16 {
+            for j in chunk.len()..16 {
+                s.push_str("   ");
+                if j == 7 { s.push(' '); }
+            }
+        }
+        s.push_str(" |");
+        for byte in chunk {
+            if byte.is_ascii_graphic() || *byte == b' ' {
+                s.push(*byte as char);
+            } else {
+                s.push('.');
+            }
+        }
+        s.push_str("|\n");
     }
-    if data.len() > limit {
-        out.push_str(&format!("\n... ({} more bytes)", data.len() - limit));
+    if data.len() > max_bytes {
+        s.push_str(&format!("... ({} more bytes)\n", data.len() - max_bytes));
     }
-    out
+    s
 }
