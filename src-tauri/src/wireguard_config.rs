@@ -93,6 +93,7 @@ pub struct WireguardAllowedIp {
     pub address: WireguardIpAddress,
     pub address_family: ADDRESS_FAMILY,
     pub cidr: u8,
+    pub flags: WireguardAllowedIpFlag, // 
 }
 
 // ============================================================================
@@ -148,6 +149,7 @@ mod abi_tests {
         assert_eq!(offset_of!(WireguardAllowedIp, address), 0);
         assert_eq!(offset_of!(WireguardAllowedIp, address_family), 16);
         assert_eq!(offset_of!(WireguardAllowedIp, cidr), 18);
+        assert_eq!(offset_of!(WireguardAllowedIp, flags), 20);
     }
 
     #[test]
