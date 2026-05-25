@@ -4,7 +4,10 @@
 )]
 
 mod wireguard;
+mod wireguard_config;   // ✅ ИСПРАВЛЕНО: перенесено из wireguard.rs сюда
+mod wireguard_parser;   // ✅ ИСПРАВЛЕНО: перенесено из wireguard.rs сюда
 mod utils;
+// mod multipath;       // Раскомментировать когда будет нужен
 
 use std::sync::Arc;
 use tauri::Manager;
@@ -15,10 +18,12 @@ use crate::utils::resolve_dll_path;
 use crate::wireguard::{WireGuardDll, TunnelState};
 
 fn main() {
-    // Logging setup
+    // ✅ Создаём директорию заранее — иначе rolling::daily паникует на первой записи
     let app_data = std::env::var("APPDATA").unwrap_or_else(|_| ".".into());
     let log_dir = format!("{}\\GameAccelerator\\logs", app_data);
-    let file_appender = rolling::daily(log_dir, "app.log");
+    let _ = std::fs::create_dir_all(&log_dir); // silently ignore if exists
+
+    let file_appender = rolling::daily(&log_dir, "app.log");
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
     let env_filter = EnvFilter::try_from_default_env()
@@ -63,8 +68,8 @@ fn run_app() -> Result<(), Box<dyn std::error::Error>> {
             wireguard::tunnel_apply_config,
             wireguard::tunnel_disconnect,
         ])
-        // ✅ ИСПРАВЛЕНО: добавлен восклицательный знак !
-        .run(tauri::generate_context!()?)
+        // ✅ ИСПРАВЛЕНО: убран ? — generate_context!() возвращает Context, не Result
+        .run(tauri::generate_context!())
         .map_err(|e| format!("Tauri runtime error: {}", e))?;
 
     Ok(())

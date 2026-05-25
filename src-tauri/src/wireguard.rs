@@ -1,12 +1,14 @@
-pub mod wireguard_config;
-pub mod wireguard_parser;
+// ✅ ИСПРАВЛЕНО: pub mod перенесены в main.rs, здесь только use crate::
+use crate::wireguard_config;
+use crate::wireguard_parser;
 
 use std::ffi::{c_void, OsStr};
 use std::os::windows::ffi::OsStrExt;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use libloading::{Library, Symbol};
+// ✅ ИСПРАВЛЕНО: убран неиспользуемый Symbol (был warning → в CI станет error)
+use libloading::Library;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 use windows::Win32::NetworkManagement::IpHelper::{
@@ -234,6 +236,8 @@ pub async fn tunnel_apply_config(
     expected_routes: Vec<String>,
 ) -> Result<TunnelStatus, String> {
     // ✅ ШАГ 1: Парсим и валидируем конфиг (Base64, DNS, CIDR)
+    // ⚠️ DNS-резолвинг в parse_endpoint блокирует tokio-поток
+    //    TODO: обернуть в tokio::task::spawn_blocking
     let parsed_config = wireguard_parser::parse_wireguard_config(&config_content)?;
     tracing::info!("✅ Config parsed successfully: {} peers, endpoint: {:?}", 
         parsed_config.peers.len(), 
@@ -245,7 +249,9 @@ pub async fn tunnel_apply_config(
     tracing::warn!("⚠️ Config parsed but NOT applied to driver yet (TODO: Serializer)");
 
     let interface_index = {
-        let mut adapter_lock = state.adapter.lock().map_err(|e| e.to_string())?;
+        // ✅ ИСПРАВЛЕНО: unwrap_or_else защищает от Mutex Poisoning
+        let mut adapter_lock = state.adapter.lock()
+            .unwrap_or_else(|p| p.into_inner());
 
         if let Some(old_handle) = adapter_lock.take() {
             let _ = state.dll.set_state(old_handle, WireGuardAdapterState::Down);
@@ -253,16 +259,38 @@ pub async fn tunnel_apply_config(
         }
 
         let handle = state.dll.create_adapter(&adapter_name, "GameAccelerator")?;
-        state.dll.set_state(handle, WireGuardAdapterState::Up)?;
+        
+        // ✅ ИСПРАВЛЕНО: cleanup при ошибке set_state
+        if let Err(e) = state.dll.set_state(handle, WireGuardAdapterState::Up) {
+            state.dll.close_adapter(handle);
+            return Err(e);
+        }
 
         let luid = state.dll.get_adapter_luid(handle);
-        let if_idx = luid_to_index(luid)?;
+        let if_idx = match luid_to_index(luid) {
+            Ok(idx) => idx,
+            Err(e) => {
+                // ✅ Cleanup при ошибке конвертации
+                let _ = state.dll.set_state(handle, WireGuardAdapterState::Down);
+                state.dll.close_adapter(handle);
+                return Err(e);
+            }
+        };
 
         *adapter_lock = Some(handle);
         if_idx
     };
 
-    wait_for_interface_up(interface_index, Duration::from_secs(15)).await?;
+    // ✅ ИСПРАВЛЕНО: cleanup зомби-адаптера при таймауте
+    if let Err(e) = wait_for_interface_up(interface_index, Duration::from_secs(15)).await {
+        let mut adapter_lock = state.adapter.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(handle) = adapter_lock.take() {
+            let _ = state.dll.set_state(handle, WireGuardAdapterState::Down);
+            state.dll.close_adapter(handle);
+        }
+        return Err(e);
+    }
+
     set_interface_mtu(interface_index, 1280)?;
     force_route_metrics(interface_index, &expected_routes)?;
 
@@ -276,7 +304,9 @@ pub async fn tunnel_apply_config(
 
 #[tauri::command]
 pub async fn tunnel_disconnect(state: State<'_, TunnelState>) -> Result<(), String> {
-    let mut adapter_lock = state.adapter.lock().map_err(|e| e.to_string())?;
+    // ✅ ИСПРАВЛЕНО: unwrap_or_else защищает от Mutex Poisoning
+    let mut adapter_lock = state.adapter.lock()
+        .unwrap_or_else(|p| p.into_inner());
     if let Some(handle) = adapter_lock.take() {
         let _ = state.dll.set_state(handle, WireGuardAdapterState::Down);
         state.dll.close_adapter(handle);
@@ -323,6 +353,7 @@ fn luid_to_index(luid: NET_LUID_LH) -> Result<u32, String> {
 
 async fn wait_for_interface_up(interface_index: u32, timeout: Duration) -> Result<(), String> {
     let start = Instant::now();
+    let mut delay_ms = 100u64; // ✅ Начинаем с 100мс, растём до 500мс
     while start.elapsed() < timeout {
         unsafe {
             let mut row: MIB_IF_ROW2 = std::mem::zeroed();
@@ -331,7 +362,8 @@ async fn wait_for_interface_up(interface_index: u32, timeout: Duration) -> Resul
                 return Ok(());
             }
         }
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+        delay_ms = (delay_ms * 2).min(500); // exponential backoff, cap at 500ms
     }
     Err("Timeout waiting for interface to become UP".into())
 }
@@ -354,6 +386,10 @@ fn set_interface_mtu(interface_index: u32, mtu: u32) -> Result<(), String> {
 }
 
 fn force_route_metrics(interface_index: u32, expected_cidrs: &[String]) -> Result<(), String> {
+    // ✅ Лимит на количество маршрутов (защита от resource exhaustion)
+    if expected_cidrs.len() > 50 {
+        return Err("Too many routes (max 50)".into());
+    }
     for cidr in expected_cidrs {
         let (ip, prefix_len) = parse_cidr(cidr)?;
         if let std::net::IpAddr::V4(ipv4) = ip {
