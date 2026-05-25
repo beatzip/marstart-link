@@ -1,4 +1,9 @@
+// ✅ ИСПРАВЛЕНО: Никаких `pub mod` здесь! Только импорты из crate.
 use crate::wireguard_parser;
+use crate::wireguard_serializer::{hexdump, serialize_config};
+use crate::wireguard_config::{WireguardInterface, WireguardPeer, WireguardAllowedIp};
+use crate::utils::{create_forward_row, parse_cidr};
+
 use std::ffi::{c_void, OsStr};
 use std::os::windows::ffi::OsStrExt;
 use std::sync::{Arc, Mutex};
@@ -7,6 +12,7 @@ use std::time::{Duration, Instant};
 use libloading::Library;
 use serde::{Deserialize, Serialize};
 use tauri::State;
+
 use windows::Win32::NetworkManagement::IpHelper::{
     ConvertInterfaceLuidToIndex, GetIfEntry2, GetIpForwardEntry2, GetIpInterfaceEntry,
     InitializeIpInterfaceEntry, SetIpForwardEntry2, SetIpInterfaceEntry, MIB_IF_ROW2,
@@ -14,7 +20,6 @@ use windows::Win32::NetworkManagement::IpHelper::{
 };
 use windows::Win32::NetworkManagement::Ndis::{IfOperStatusUp, NET_LUID_LH};
 use windows::Win32::Networking::WinSock::AF_INET;
-use crate::utils::{create_forward_row, parse_cidr};
 
 // ============================================================================
 // Newtype для Send + Sync (сырой указатель на handle адаптера)
@@ -84,10 +89,9 @@ impl WireGuardDll {
     pub fn load(path: &str) -> Result<Self, String> {
         unsafe {
             let lib = Library::new(path).map_err(|e| format!("Failed to load DLL: {e}"))?;
-
+            
             let create_adapter_fn = *lib.get(b"WireGuardCreateAdapter").map_err(|e| format!("Symbol not found: {e}"))?;
             let close_adapter_fn = *lib.get(b"WireGuardCloseAdapter").map_err(|e| format!("Symbol not found: {e}"))?;
-            // ✅ ИСПРАВЛЕНО: Правильное имя экспорта из wireguard.h
             let set_state_fn = *lib.get(b"WireGuardSetAdapterState").map_err(|e| format!("Symbol not found: {e}"))?;
             let get_adapter_luid_fn = *lib.get(b"WireGuardGetAdapterLUID").map_err(|e| format!("Symbol not found: {e}"))?;
             let set_configuration_fn = *lib.get(b"WireGuardSetConfiguration").map_err(|e| format!("Symbol not found: {e}"))?;
@@ -154,14 +158,13 @@ impl WireGuardDll {
                 bytes.len() as u32,
             );
             if result == 0 {
-                Err("WireGuardSetConfiguration failed (check flags, layout, key lengths)".into())
+                Err("WireGuardSetConfiguration failed".into())
             } else {
                 Ok(())
             }
         }
     }
 
-    #[allow(dead_code)]
     pub fn get_configuration(&self, handle: WireGuardAdapterHandle) -> Result<Vec<u8>, String> {
         unsafe {
             let mut size: u32 = 0;
@@ -220,6 +223,14 @@ pub struct TunnelStatus {
     pub mtu: Option<u32>,
 }
 
+// 🚀 НОВОЕ: Структура для статистики трафика
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct TunnelStats {
+    pub is_active: bool,
+    pub total_tx: u64,
+    pub total_rx: u64,
+}
+
 // ============================================================================
 // Tauri Commands
 // ============================================================================
@@ -230,7 +241,6 @@ pub async fn tunnel_apply_config(
     adapter_name: String,
     expected_routes: Vec<String>,
 ) -> Result<TunnelStatus, String> {
-    // ✅ ШАГ 1: Парсим и валидируем конфиг (выносим в spawn_blocking из-за DNS-резолвинга)
     let parsed_config = tokio::task::spawn_blocking({
         let content = config_content.clone();
         move || wireguard_parser::parse_wireguard_config(&content)
@@ -241,7 +251,6 @@ pub async fn tunnel_apply_config(
     tracing::info!("✅ Config parsed successfully: {} peers", parsed_config.peers.len());
 
     let interface_index = {
-        // ✅ Защита от Mutex Poisoning
         let mut adapter_lock = state.adapter.lock().unwrap_or_else(|p| p.into_inner());
 
         if let Some(old_handle) = adapter_lock.take() {
@@ -250,16 +259,15 @@ pub async fn tunnel_apply_config(
         }
 
         let handle = state.dll.create_adapter(&adapter_name, "GameAccelerator")?;
-        
-        // ⚠️ ВРЕМЕННО: binary blob serializer ещё не написан
-        // let blob = wireguard_serializer::serialize_config(&parsed_config)?;
-        // if let Err(e) = state.dll.set_configuration(handle, &blob) { ... }
-        tracing::warn!("⚠️ Config parsed but NOT applied to driver yet (TODO: Serializer)");
 
-        // ✅ Cleanup при ошибке set_state
-        if let Err(e) = state.dll.set_state(handle, WireGuardAdapterState::Up) {
+        let blob = serialize_config(&parsed_config)?;
+        tracing::info!("WG blob size = {} bytes", blob.len());
+        tracing::debug!("WG blob hexdump:\n{}", hexdump(&blob, 128));
+        
+        if let Err(e) = state.dll.set_configuration(handle, &blob) {
+            let _ = state.dll.set_state(handle, WireGuardAdapterState::Down);
             state.dll.close_adapter(handle);
-            return Err(e);
+            return Err(format!("WireGuardSetConfiguration failed: {}", e));
         }
 
         let luid = state.dll.get_adapter_luid(handle);
@@ -272,11 +280,16 @@ pub async fn tunnel_apply_config(
             }
         };
 
+        if let Err(e) = state.dll.set_state(handle, WireGuardAdapterState::Up) {
+            let _ = state.dll.set_state(handle, WireGuardAdapterState::Down);
+            state.dll.close_adapter(handle);
+            return Err(e);
+        }
+
         *adapter_lock = Some(handle);
         if_idx
     };
 
-    // ✅ Cleanup зомби-адаптера при таймауте
     if let Err(e) = wait_for_interface_up(interface_index, Duration::from_secs(15)).await {
         let mut adapter_lock = state.adapter.lock().unwrap_or_else(|p| p.into_inner());
         if let Some(handle) = adapter_lock.take() {
@@ -298,19 +311,6 @@ pub async fn tunnel_apply_config(
 }
 
 #[tauri::command]
-pub async fn tunnel_get_status(state: State<'_, TunnelState>) -> Result<TunnelStatus, String> {
-    let adapter_lock = state.adapter.lock().unwrap_or_else(|p| p.into_inner());
-    let is_active = adapter_lock.is_some();
-    
-    Ok(TunnelStatus {
-        is_active,
-        adapter_name: if is_active { Some("GameAccelerator".to_string()) } else { None },
-        interface_index: None,
-        mtu: if is_active { Some(1280) } else { None },
-    })
-}
-
-#[tauri::command]
 pub async fn tunnel_disconnect(state: State<'_, TunnelState>) -> Result<(), String> {
     let mut adapter_lock = state.adapter.lock().unwrap_or_else(|p| p.into_inner());
     if let Some(handle) = adapter_lock.take() {
@@ -320,8 +320,54 @@ pub async fn tunnel_disconnect(state: State<'_, TunnelState>) -> Result<(), Stri
     Ok(())
 }
 
+// 🚀 НОВОЕ: Команда для получения статистики TX/RX
+#[tauri::command]
+pub async fn tunnel_get_stats(state: State<'_, TunnelState>) -> Result<TunnelStats, String> {
+    let adapter_lock = state.adapter.lock().unwrap_or_else(|p| p.into_inner());
+    
+    let handle = match *adapter_lock {
+        Some(h) => h,
+        None => return Ok(TunnelStats { is_active: false, total_tx: 0, total_rx: 0 }),
+    };
+
+    // Запрашиваем бинарный конфиг у драйвера
+    let buffer = state.dll.get_configuration(handle)?;
+    
+    if buffer.len() < std::mem::size_of::<WireguardInterface>() {
+        return Err("Invalid configuration buffer size".into());
+    }
+
+    // Безопасно читаем заголовок Interface
+    let iface = unsafe { &*(buffer.as_ptr() as *const WireguardInterface) };
+    let mut total_tx = 0u64;
+    let mut total_rx = 0u64;
+
+    // Peers и AllowedIPs идут в памяти друг за другом. Вычисляем смещение (offset).
+    let mut offset = std::mem::size_of::<WireguardInterface>();
+    
+    for _ in 0..iface.peers_count {
+        if offset + std::mem::size_of::<WireguardPeer>() > buffer.len() {
+            break; // Защита от выхода за границы памяти
+        }
+        
+        let peer = unsafe { &*(buffer.as_ptr().add(offset) as *const WireguardPeer) };
+        total_tx += peer.tx_bytes;
+        total_rx += peer.rx_bytes;
+        
+        // Сдвигаем offset на размер Peer + размер всех его AllowedIPs
+        offset += std::mem::size_of::<WireguardPeer>();
+        offset += (peer.allowed_ips_count as usize) * std::mem::size_of::<WireguardAllowedIp>();
+    }
+
+    Ok(TunnelStats {
+        is_active: true,
+        total_tx,
+        total_rx,
+    })
+}
+
 // ============================================================================
-// Panic Hook
+// Panic Hook & Helpers
 // ============================================================================
 pub fn setup_panic_hook(
     dll: Arc<WireGuardDll>,
@@ -344,9 +390,6 @@ pub fn setup_panic_hook(
     }));
 }
 
-// ============================================================================
-// Helper Functions
-// ============================================================================
 fn luid_to_index(luid: NET_LUID_LH) -> Result<u32, String> {
     unsafe {
         let mut index = 0u32;
@@ -358,8 +401,7 @@ fn luid_to_index(luid: NET_LUID_LH) -> Result<u32, String> {
 
 async fn wait_for_interface_up(interface_index: u32, timeout: Duration) -> Result<(), String> {
     let start = Instant::now();
-    let mut delay_ms = 100u64; 
-    
+    let mut delay_ms = 100u64;
     while start.elapsed() < timeout {
         unsafe {
             let mut row: MIB_IF_ROW2 = std::mem::zeroed();
@@ -369,9 +411,8 @@ async fn wait_for_interface_up(interface_index: u32, timeout: Duration) -> Resul
             }
         }
         tokio::time::sleep(Duration::from_millis(delay_ms)).await;
-        delay_ms = (delay_ms * 2).min(500); // exponential backoff, cap at 500ms
+        delay_ms = (delay_ms * 2).min(500);
     }
-    
     Err("Timeout waiting for interface to become UP".into())
 }
 
@@ -381,11 +422,9 @@ fn set_interface_mtu(interface_index: u32, mtu: u32) -> Result<(), String> {
         InitializeIpInterfaceEntry(&mut row);
         row.InterfaceIndex = interface_index;
         row.Family = AF_INET;
-        
         if GetIpInterfaceEntry(&mut row).is_err() {
             return Err("GetIpInterfaceEntry failed".into());
         }
-        
         row.NlMtu = mtu;
         if SetIpInterfaceEntry(&mut row).is_err() {
             return Err("SetIpInterfaceEntry (MTU) failed".into());
@@ -398,7 +437,6 @@ fn force_route_metrics(interface_index: u32, expected_cidrs: &[String]) -> Resul
     if expected_cidrs.len() > 50 {
         return Err("Too many routes (max 50)".into());
     }
-
     for cidr in expected_cidrs {
         let (ip, prefix_len) = parse_cidr(cidr)?;
         if let std::net::IpAddr::V4(ipv4) = ip {

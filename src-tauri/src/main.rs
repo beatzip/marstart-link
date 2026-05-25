@@ -9,6 +9,7 @@ mod wireguard_config;
 mod wireguard_parser;
 mod wireguard_serializer;
 mod utils;
+mod network_config;
 
 use std::sync::Arc;
 use tauri::Manager;
@@ -65,7 +66,8 @@ fn run_app() -> Result<(), Box<dyn std::error::Error>> {
         .invoke_handler(tauri::generate_handler![
             wireguard::tunnel_apply_config,
             wireguard::tunnel_disconnect,
-            wireguard::tunnel_get_status,   // ✅ добавлено
+            wireguard::tunnel_get_status,
+            wireguard::tunnel_get_stats,   // ✅ добавлено
         ])
         // ✅ 修复：generate_context!() 返回 Context 而不是 Result，不能加 ?
         .run(tauri::generate_context!())

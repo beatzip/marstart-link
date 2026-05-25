@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
-import { invoke } from '@tauri-apps/api/tauri';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { invoke } from '@tauri-apps/api'; // ✅ Исправлено: стандартный импорт для Tauri v1
 
 // ============================================================
 // Types
@@ -12,7 +12,6 @@ interface TunnelStatus {
   mtu: number | null;
 }
 
-// Сохраняем ВСЁ КРОМЕ приватного ключа
 interface SavedConfig {
   publicKey: string;
   endpoint: string;
@@ -28,6 +27,7 @@ type AppPhase = 'idle' | 'connecting' | 'connected' | 'disconnecting';
 
 const STORAGE_KEY = 'wg_config_v1';
 const MAX_ROUTES = 50;
+const POLL_INTERVAL_MS = 3000; // Опрос статуса каждые 3 секунды
 
 // ============================================================
 // Validation helpers
@@ -36,8 +36,12 @@ const MAX_ROUTES = 50;
 function validateWgKey(key: string, fieldName: string): string | null {
   const trimmed = key.trim();
   if (!trimmed) return `${fieldName}: ключ не может быть пустым`;
-  if (trimmed.length !== 44)
-    return `${fieldName}: длина должна быть 44 символа (сейчас ${trimmed.length})`;
+  
+  // ✅ Улучшено: Строгая проверка Base64 (32 байта = 43-44 символа)
+  if (!/^[A-Za-z0-9+/]{42,43}={0,2}$/.test(trimmed)) {
+    return `${fieldName}: неверный формат Base64 (ожидается 43-44 символа)`;
+  }
+  
   try {
     const decoded = atob(trimmed);
     if (decoded.length !== 32)
@@ -112,7 +116,7 @@ function validateAllFields(
 }
 
 // ============================================================
-// Build config string (private key только для передачи в backend)
+// Build config string
 // ============================================================
 
 function buildWireGuardConfig(
@@ -150,146 +154,69 @@ const S = {
     backgroundColor: '#0f1117',
     color: '#e2e8f0',
   } as React.CSSProperties,
-
-  header: {
-    marginBottom: '24px',
-  } as React.CSSProperties,
-
+  header: { marginBottom: '24px' } as React.CSSProperties,
   h1: {
-    fontSize: '20px',
-    fontWeight: 600,
-    color: '#f8fafc',
-    margin: '0 0 4px 0',
-    letterSpacing: '-0.3px',
+    fontSize: '20px', fontWeight: 600, color: '#f8fafc',
+    margin: '0 0 4px 0', letterSpacing: '-0.3px',
   } as React.CSSProperties,
-
-  subtitle: {
-    fontSize: '12px',
-    color: '#64748b',
-    margin: 0,
-  } as React.CSSProperties,
-
+  subtitle: { fontSize: '12px', color: '#64748b', margin: 0 } as React.CSSProperties,
   card: {
-    backgroundColor: '#1a1f2e',
-    border: '1px solid #2d3748',
-    borderRadius: '10px',
-    padding: '20px',
-    marginBottom: '16px',
+    backgroundColor: '#1a1f2e', border: '1px solid #2d3748',
+    borderRadius: '10px', padding: '20px', marginBottom: '16px',
   } as React.CSSProperties,
-
   cardTitle: {
-    fontSize: '13px',
-    fontWeight: 600,
-    color: '#94a3b8',
-    textTransform: 'uppercase' as const,
-    letterSpacing: '0.06em',
-    margin: '0 0 16px 0',
+    fontSize: '13px', fontWeight: 600, color: '#94a3b8',
+    textTransform: 'uppercase' as const, letterSpacing: '0.06em', margin: '0 0 16px 0',
   } as React.CSSProperties,
-
-  field: {
-    marginBottom: '14px',
-  } as React.CSSProperties,
-
+  field: { marginBottom: '14px' } as React.CSSProperties,
   label: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px',
-    marginBottom: '6px',
-    fontSize: '13px',
-    fontWeight: 500,
-    color: '#cbd5e1',
+    display: 'flex', alignItems: 'center', gap: '6px',
+    marginBottom: '6px', fontSize: '13px', fontWeight: 500, color: '#cbd5e1',
   } as React.CSSProperties,
-
-  labelHint: {
-    fontSize: '11px',
-    color: '#475569',
-    fontWeight: 400,
-  } as React.CSSProperties,
-
+  labelHint: { fontSize: '11px', color: '#475569', fontWeight: 400 } as React.CSSProperties,
   input: (disabled: boolean, hasError: boolean): React.CSSProperties => ({
-    width: '100%',
-    padding: '9px 12px',
-    fontSize: '13px',
+    width: '100%', padding: '9px 12px', fontSize: '13px',
     fontFamily: '"Cascadia Code", "Fira Code", "Consolas", monospace',
     background: disabled ? '#111827' : '#0d1117',
     border: `1px solid ${hasError ? '#ef4444' : '#2d3748'}`,
-    borderRadius: '6px',
-    color: disabled ? '#475569' : '#e2e8f0',
-    boxSizing: 'border-box' as const,
-    outline: 'none',
-    transition: 'border-color 0.15s',
-    cursor: disabled ? 'not-allowed' : 'text',
+    borderRadius: '6px', color: disabled ? '#475569' : '#e2e8f0',
+    boxSizing: 'border-box' as const, outline: 'none',
+    transition: 'border-color 0.15s', cursor: disabled ? 'not-allowed' : 'text',
   }),
-
   statusBox: (phase: AppPhase): React.CSSProperties => ({
-    padding: '12px 14px',
-    borderRadius: '8px',
-    fontSize: '13px',
-    lineHeight: '1.6',
-    fontFamily: '"Cascadia Code", monospace',
-    whiteSpace: 'pre-wrap' as const,
-    marginBottom: '16px',
-    border: '1px solid',
+    padding: '12px 14px', borderRadius: '8px', fontSize: '13px',
+    lineHeight: '1.6', fontFamily: '"Cascadia Code", monospace',
+    whiteSpace: 'pre-wrap' as const, marginBottom: '16px', border: '1px solid',
     ...(phase === 'connected'
       ? { background: '#052e16', borderColor: '#166534', color: '#86efac' }
       : phase === 'connecting' || phase === 'disconnecting'
       ? { background: '#1c1f2e', borderColor: '#334155', color: '#94a3b8' }
       : { background: '#1a1f2e', borderColor: '#2d3748', color: '#64748b' }),
   }),
-
   errorBox: {
-    padding: '10px 14px',
-    borderRadius: '8px',
-    fontSize: '13px',
-    background: '#2d0a0a',
-    border: '1px solid #7f1d1d',
-    color: '#fca5a5',
-    marginBottom: '16px',
-    lineHeight: '1.5',
+    padding: '10px 14px', borderRadius: '8px', fontSize: '13px',
+    background: '#2d0a0a', border: '1px solid #7f1d1d', color: '#fca5a5',
+    marginBottom: '16px', lineHeight: '1.5',
   } as React.CSSProperties,
-
-  buttonRow: {
-    display: 'flex',
-    gap: '10px',
-  } as React.CSSProperties,
-
+  buttonRow: { display: 'flex', gap: '10px' } as React.CSSProperties,
   btnConnect: (disabled: boolean): React.CSSProperties => ({
-    flex: 1,
-    padding: '10px 20px',
-    fontSize: '14px',
-    fontWeight: 600,
-    borderRadius: '7px',
-    border: 'none',
-    cursor: disabled ? 'not-allowed' : 'pointer',
+    flex: 1, padding: '10px 20px', fontSize: '14px', fontWeight: 600,
+    borderRadius: '7px', border: 'none', cursor: disabled ? 'not-allowed' : 'pointer',
     background: disabled ? '#1e3a5f' : 'linear-gradient(135deg, #2563eb, #1d4ed8)',
-    color: disabled ? '#4b6fa5' : '#fff',
-    transition: 'all 0.15s',
-    letterSpacing: '0.01em',
+    color: disabled ? '#4b6fa5' : '#fff', transition: 'all 0.15s', letterSpacing: '0.01em',
   }),
-
   btnDisconnect: (disabled: boolean): React.CSSProperties => ({
-    flex: 1,
-    padding: '10px 20px',
-    fontSize: '14px',
-    fontWeight: 600,
-    borderRadius: '7px',
-    border: '1px solid #374151',
+    flex: 1, padding: '10px 20px', fontSize: '14px', fontWeight: 600,
+    borderRadius: '7px', border: '1px solid #374151',
     cursor: disabled ? 'not-allowed' : 'pointer',
     background: disabled ? '#111827' : '#1f2937',
-    color: disabled ? '#374151' : '#94a3b8',
-    transition: 'all 0.15s',
-    letterSpacing: '0.01em',
+    color: disabled ? '#374151' : '#94a3b8', transition: 'all 0.15s', letterSpacing: '0.01em',
   }),
-
   indicator: (active: boolean): React.CSSProperties => ({
-    width: '7px',
-    height: '7px',
-    borderRadius: '50%',
+    width: '7px', height: '7px', borderRadius: '50%',
     background: active ? '#22c55e' : '#374151',
     boxShadow: active ? '0 0 6px #22c55e88' : 'none',
-    display: 'inline-block',
-    marginRight: '6px',
-    flexShrink: 0,
+    display: 'inline-block', marginRight: '6px', flexShrink: 0,
   }),
 } as const;
 
@@ -308,32 +235,57 @@ export default function App() {
   const [address, setAddress] = useState('10.0.0.2/32');
   const [allowedIps, setAllowedIps] = useState('10.0.0.0/24');
 
-  // Поля с ошибкой валидации для подсветки
   const [fieldErrors, setFieldErrors] = useState<Record<string, boolean>>({});
 
   const isConnected = phase === 'connected';
   const isBusy = phase === 'connecting' || phase === 'disconnecting';
+  
+  // ✅ Добавлено: Ref для безопасного чтения phase внутри setInterval
+  const phaseRef = useRef(phase);
+  useEffect(() => { phaseRef.current = phase; }, [phase]);
 
-  // ✅ FIX: Синхронизация состояния туннеля при запуске приложения
+  // ✅ КРИТИЧЕСКОЕ УЛУЧШЕНИЕ: Фоновый опрос статуса туннеля (Sync с Windows Driver)
   useEffect(() => {
-    invoke<TunnelStatus>('tunnel_get_status')
-      .then(status => {
+    let isMounted = true;
+
+    const pollStatus = async () => {
+      try {
+        const status = await invoke<TunnelStatus>('tunnel_get_status');
+        if (!isMounted) return;
+
         if (status.is_active) {
-          setPhase('connected');
-          setStatusText(
-            `Соединение активно\n` +
-            `Адаптер: ${status.adapter_name ?? '—'}\n` +
-            `Индекс интерфейса: ${status.interface_index ?? '—'}\n` +
-            `MTU: ${status.mtu ?? '—'}`,
-          );
+          // Если мы не в процессе отключения, считаем что подключены
+          if (phaseRef.current !== 'disconnecting') {
+            setPhase('connected');
+            setStatusText(
+              `Соединение активно\n` +
+              `Адаптер: ${status.adapter_name ?? '—'}\n` +
+              `Индекс интерфейса: ${status.interface_index ?? '—'}\n` +
+              `MTU: ${status.mtu ?? '—'}`
+            );
+          }
+        } else {
+          // Если драйвер сообщает, что туннель мертв, синхронизируем UI
+          if (phaseRef.current === 'connected' || phaseRef.current === 'connecting') {
+            setPhase('idle');
+            setStatusText('Нет активного соединения (Туннель потерян)');
+          }
         }
-      })
-      .catch(() => {
-        // tunnel_get_status ещё не реализован — тихо игнорируем
-      });
+      } catch {
+        // Бэкенд еще грузится или команда не зарегистрирована — игнорируем
+      }
+    };
+
+    pollStatus(); // Первый вызов сразу
+    const interval = setInterval(pollStatus, POLL_INTERVAL_MS);
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
   }, []);
 
-  // ✅ FIX: Загрузка конфига — без приватного ключа
+  // Загрузка конфига из LocalStorage
   useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -349,13 +301,13 @@ export default function App() {
   }, []);
 
   const markFieldErrors = useCallback(
-    (privateKey: string, publicKey: string, endpoint: string, address: string, allowedIps: string) => {
+    (priv: string, pub: string, endp: string, addr: string, allowed: string) => {
       setFieldErrors({
-        privateKey: validateWgKey(privateKey, 'PrivateKey') !== null,
-        publicKey: validateWgKey(publicKey, 'PublicKey') !== null,
-        endpoint: validateEndpoint(endpoint) !== null,
-        address: validateCidr(address, 'Address') !== null,
-        allowedIps: allowedIps.split(',').some(c => validateCidr(c.trim(), 'AllowedIPs') !== null),
+        privateKey: validateWgKey(priv, 'PrivateKey') !== null,
+        publicKey: validateWgKey(pub, 'PublicKey') !== null,
+        endpoint: validateEndpoint(endp) !== null,
+        address: validateCidr(addr, 'Address') !== null,
+        allowedIps: allowed.split(',').some(c => validateCidr(c.trim(), 'AllowedIPs') !== null),
       });
     },
     [],
@@ -364,7 +316,6 @@ export default function App() {
   const connect = async () => {
     if (isBusy || isConnected) return;
 
-    // ✅ FIX: Полная клиентская валидация включая address и allowedIps
     const validationError = validateAllFields(privateKey, publicKey, endpoint, address, allowedIps);
     if (validationError) {
       markFieldErrors(privateKey, publicKey, endpoint, address, allowedIps);
@@ -387,7 +338,6 @@ export default function App() {
         expectedRoutes: routesList,
       });
 
-      // ✅ FIX: Сохраняем в localStorage ТОЛЬКО после успешного подключения
       const toSave: SavedConfig = { publicKey, endpoint, address, allowedIps };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
 
@@ -396,11 +346,13 @@ export default function App() {
         `Соединение активно\n` +
         `Адаптер: ${result.adapter_name ?? 'GameAccelerator'}\n` +
         `Индекс интерфейса: ${result.interface_index ?? '—'}\n` +
-        `MTU: ${result.mtu ?? '—'}`,
+        `MTU: ${result.mtu ?? '—'}`
       );
     } catch (err) {
       setPhase('idle');
-      setErrorText(`Ошибка подключения: ${String(err)}`);
+      // ✅ Улучшено: Красивый вывод ошибки от Rust бэкенда
+      const errMsg = typeof err === 'string' ? err : JSON.stringify(err);
+      setErrorText(`Ошибка подключения: ${errMsg}`);
       setStatusText('Нет активного соединения');
     }
   };
@@ -415,7 +367,6 @@ export default function App() {
       setStatusText('Нет активного соединения');
       setErrorText(null);
     } catch (err) {
-      // Соединение всё равно считаем разорванным — backend мог упасть
       setPhase('idle');
       setErrorText(`Ошибка при отключении: ${String(err)}`);
       setStatusText('Нет активного соединения');
@@ -424,7 +375,6 @@ export default function App() {
 
   return (
     <div style={S.root}>
-      {/* Header */}
       <div style={S.header}>
         <h1 style={S.h1}>
           <span style={S.indicator(isConnected)} />
@@ -435,23 +385,15 @@ export default function App() {
         </p>
       </div>
 
-      {/* Status */}
       <div style={S.statusBox(phase)}>{statusText}</div>
 
-      {/* Error */}
-      {errorText && (
-        <div style={S.errorBox}>{errorText}</div>
-      )}
+      {errorText && <div style={S.errorBox}>{errorText}</div>}
 
-      {/* Config form */}
       <div style={S.card}>
         <p style={S.cardTitle}>Конфигурация</p>
 
-        {/* PrivateKey */}
         <div style={S.field}>
-          <label style={S.label}>
-            Приватный ключ (клиент)
-          </label>
+          <label style={S.label}>Приватный ключ (клиент)</label>
           <input
             type="password"
             value={privateKey}
@@ -468,7 +410,6 @@ export default function App() {
           />
         </div>
 
-        {/* Address */}
         <div style={S.field}>
           <label style={S.label}>
             Адрес интерфейса
@@ -489,11 +430,8 @@ export default function App() {
           />
         </div>
 
-        {/* PublicKey */}
         <div style={S.field}>
-          <label style={S.label}>
-            Публичный ключ сервера
-          </label>
+          <label style={S.label}>Публичный ключ сервера</label>
           <input
             type="text"
             value={publicKey}
@@ -509,7 +447,6 @@ export default function App() {
           />
         </div>
 
-        {/* Endpoint */}
         <div style={S.field}>
           <label style={S.label}>
             Endpoint сервера
@@ -530,7 +467,6 @@ export default function App() {
           />
         </div>
 
-        {/* AllowedIPs */}
         <div style={{ ...S.field, marginBottom: 0 }}>
           <label style={S.label}>
             Разрешённые IP (AllowedIPs)
@@ -552,7 +488,6 @@ export default function App() {
         </div>
       </div>
 
-      {/* Buttons */}
       <div style={S.buttonRow}>
         <button
           style={S.btnConnect(isBusy || isConnected)}
