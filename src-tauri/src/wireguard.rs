@@ -87,7 +87,6 @@ struct AssignedAddress {
     prefix: u8,
 }
 
-#[derive(Debug)]
 struct TunnelRuntime {
     interface_index: u32,
     assigned_address: Option<AssignedAddress>,
@@ -591,7 +590,7 @@ fn assign_interface_address(
         row.InterfaceIndex = interface_index;
         row.Address = sockaddr;
         row.OnLinkPrefixLength = prefix;
-        row.SkipAsSource = false;
+        row.SkipAsSource = false.into();
 
         match CreateUnicastIpAddressEntry(&row) {
             Ok(_) => {
@@ -607,7 +606,7 @@ fn assign_interface_address(
 
                 if GetUnicastIpAddressEntry(&mut existing).is_ok() {
                     existing.OnLinkPrefixLength = prefix;
-                    existing.SkipAsSource = false;
+                    existing.SkipAsSource = false.into();
                     SetUnicastIpAddressEntry(&existing)
                         .map_err(|e| format!("Failed to update interface address: {e}"))?;
                     tracing::info!("Updated existing interface address {}/{}", ip, prefix);
