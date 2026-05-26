@@ -15,8 +15,8 @@ fn main() {
             "sdk/wintun/bin/amd64/wintun.dll",
         ),
         "aarch64" => (
-            "sdk/wireguard-nt/bin/arm64/wireguard.dll",
-            "sdk/wintun/bin/arm64/wintun.dll",
+            "sdk/wireguard-nt/arm64/wireguard.dll",
+            "sdk/wintun/arm64/wintun.dll",
         ),
         _ => panic!("Unsupported architecture: {}", target_arch),
     };
