@@ -33,6 +33,8 @@ jobs:
       # Rust
       # ---------------------------
       - name: Setup Rust
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
         uses: dtolnay/rust-toolchain@stable
 
       # ---------------------------
@@ -76,6 +78,8 @@ jobs:
             -Force
 
           Write-Host "SDKs downloaded successfully"
+          Get-ChildItem "src-tauri/sdk/wireguard-nt" -Recurse
+          Get-ChildItem "src-tauri/sdk/wintun" -Recurse
 
       # ---------------------------
       # Verify required files
@@ -96,6 +100,9 @@ jobs:
       - name: Cargo check
         working-directory: src-tauri
         run: cargo check --verbose
+              - name: Install Tauri dependencies
+        run: |
+          rustup target add x86_64-pc-windows-msvc
 
       # ---------------------------
       # Build Tauri App
@@ -110,4 +117,4 @@ jobs:
           releaseName: "Game Accelerator ${{ github.ref_name }}"
           releaseDraft: false
           prerelease: false
-          projectPath: src-tauri
+          projectPath: .
