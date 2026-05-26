@@ -1,4 +1,3 @@
-```rust
 use std::{env, fs, path::PathBuf};
 
 fn main() {
@@ -22,10 +21,6 @@ fn main() {
         "cargo:warning=Target architecture: {}",
         target_arch
     );
-
-    // ---------------------------------------------------------
-    // SDK DLL paths
-    // ---------------------------------------------------------
 
     let (wg_candidates, wintun_candidates): (Vec<&str>, Vec<&str>) =
         match target_arch.as_str() {
@@ -60,10 +55,6 @@ fn main() {
             }
         };
 
-    // ---------------------------------------------------------
-    // Resources dir
-    // ---------------------------------------------------------
-
     let resources_dir = manifest_dir.join("resources");
 
     fs::create_dir_all(&resources_dir)
@@ -73,10 +64,6 @@ fn main() {
         "cargo:warning=Resources dir: {}",
         resources_dir.display()
     );
-
-    // ---------------------------------------------------------
-    // Copy helper
-    // ---------------------------------------------------------
 
     fn copy_first_existing(
         manifest_dir: &PathBuf,
@@ -120,10 +107,6 @@ fn main() {
         );
     }
 
-    // ---------------------------------------------------------
-    // Copy WireGuard DLL
-    // ---------------------------------------------------------
-
     copy_first_existing(
         &manifest_dir,
         &wg_candidates,
@@ -131,20 +114,12 @@ fn main() {
         "wireguard.dll",
     );
 
-    // ---------------------------------------------------------
-    // Copy Wintun DLL
-    // ---------------------------------------------------------
-
     copy_first_existing(
         &manifest_dir,
         &wintun_candidates,
         &resources_dir.join("wintun.dll"),
         "wintun.dll",
     );
-
-    // ---------------------------------------------------------
-    // Windows manifest
-    // ---------------------------------------------------------
 
     let mut res = winres::WindowsResource::new();
 
@@ -155,4 +130,3 @@ fn main() {
 
     println!("cargo:warning=build.rs completed successfully");
 }
-```
