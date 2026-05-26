@@ -19,102 +19,63 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # важно для тегов
 
-      # ---------------------------
-      # Node.js
-      # ---------------------------
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
+          cache: 'npm'
 
-      # ---------------------------
-      # Rust
-      # ---------------------------
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
 
-      # ---------------------------
-      # Install frontend deps
-      # ---------------------------
       - name: Install frontend dependencies
         run: npm ci
 
-      # ---------------------------
-      # Build frontend (Vite/React)
-      # ---------------------------
       - name: Build frontend
         run: npm run build
 
-      # ---------------------------
-      # Download WireGuard + Wintun SDK
-      # ---------------------------
+      # ==================== SDKs ====================
       - name: Download SDKs
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path "src-tauri/sdk"
 
-          # WireGuard-NT
-          Invoke-WebRequest `
-            -Uri "https://download.wireguard.com/wireguard-nt/wireguard-nt-1.1.zip" `
-            -OutFile "src-tauri/sdk/wireguard-nt.zip"
+          Invoke-WebRequest "https://download.wireguard.com/wireguard-nt/wireguard-nt-1.1.zip" -OutFile "src-tauri/sdk/wireguard-nt.zip"
+          Expand-Archive "src-tauri/sdk/wireguard-nt.zip" -DestinationPath "src-tauri/sdk/wireguard-nt" -Force
 
-          Expand-Archive `
-            -Path "src-tauri/sdk/wireguard-nt.zip" `
-            -DestinationPath "src-tauri/sdk/wireguard-nt" `
-            -Force
+          Invoke-WebRequest "https://www.wintun.net/builds/wintun-0.14.1.zip" -OutFile "src-tauri/sdk/wintun.zip"
+          Expand-Archive "src-tauri/sdk/wintun.zip" -DestinationPath "src-tauri/sdk/wintun" -Force
 
-          # Wintun
-          Invoke-WebRequest `
-            -Uri "https://www.wintun.net/builds/wintun-0.14.1.zip" `
-            -OutFile "src-tauri/sdk/wintun.zip"
-
-          Expand-Archive `
-            -Path "src-tauri/sdk/wintun.zip" `
-            -DestinationPath "src-tauri/sdk/wintun" `
-            -Force
-
-          Write-Host "SDKs downloaded successfully"
-          Get-ChildItem "src-tauri/sdk/wireguard-nt" -Recurse
-          Get-ChildItem "src-tauri/sdk/wintun" -Recurse
-
-      # ---------------------------
-      # Verify required files
-      # ---------------------------
       - name: Verify frontend build
         shell: pwsh
         run: |
           if (!(Test-Path "dist/index.html")) {
-            Write-Error "Frontend build failed: dist/index.html missing"
+            Write-Error "Frontend build failed"
             exit 1
           }
 
-          Write-Host "Frontend build verified"
-
-      # ---------------------------
-      # Cargo check
-      # ---------------------------
+      # ==================== Rust ====================
       - name: Cargo check
         working-directory: src-tauri
         run: cargo check --verbose
-      - name: Install Tauri dependencies
-        run: |
-          rustup target add x86_64-pc-windows-msvc
 
-      # ---------------------------
-      # Build Tauri App
-      # ---------------------------
+      - name: Add Windows target
+        run: rustup target add x86_64-pc-windows-msvc
+
+      # ==================== Tauri Build ====================
       - name: Build Tauri App
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v2   # ← обновили до v2!
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Game Accelerator ${{ github.ref_name }}"
           releaseDraft: false
           prerelease: false
-          projectPath: .
+          projectPath: "."                    # или ./src-tauri, если conf в src-tauri
