@@ -4,63 +4,153 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=src-tauri.manifest");
 
-    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+    let target_arch =
+        env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_else(|_| "x86_64".into());
+
+    let manifest_dir = PathBuf::from(
+        env::var("CARGO_MANIFEST_DIR")
+            .expect("CARGO_MANIFEST_DIR is not set"),
+    );
+
+    println!(
+        "cargo:warning=Manifest dir: {}",
+        manifest_dir.display()
+    );
+
+    println!(
+        "cargo:warning=Target architecture: {}",
+        target_arch
+    );
+
+    // ---------------------------------------------------------
+    // SDK DLL paths
+    // ---------------------------------------------------------
+
+    let (wg_candidates, wintun_candidates): (Vec<&str>, Vec<&str>) =
+        match target_arch.as_str() {
+            "x86_64" => (
+                vec![
+                    "sdk/wireguard-nt/bin/amd64/wireguard.dll",
+                    "sdk/wireguard-nt/amd64/wireguard.dll",
+                    "sdk/wireguard-nt/wireguard-nt/bin/amd64/wireguard.dll",
+                ],
+                vec![
+                    "sdk/wintun/bin/amd64/wintun.dll",
+                    "sdk/wintun/amd64/wintun.dll",
+                    "sdk/wintun/wintun/bin/amd64/wintun.dll",
+                ],
+            ),
+
+            "aarch64" => (
+                vec![
+                    "sdk/wireguard-nt/bin/arm64/wireguard.dll",
+                    "sdk/wireguard-nt/arm64/wireguard.dll",
+                    "sdk/wireguard-nt/wireguard-nt/bin/arm64/wireguard.dll",
+                ],
+                vec![
+                    "sdk/wintun/bin/arm64/wintun.dll",
+                    "sdk/wintun/arm64/wintun.dll",
+                    "sdk/wintun/wintun/bin/arm64/wintun.dll",
+                ],
+            ),
+
+            other => {
+                panic!("Unsupported architecture: {}", other);
+            }
+        };
+
+    // ---------------------------------------------------------
+    // Resources dir
+    // ---------------------------------------------------------
+
     let resources_dir = manifest_dir.join("resources");
-    fs::create_dir_all(&resources_dir).expect("Failed to create resources dir");
 
-    // === Скачиваем SDK автоматически, если их нет ===
-    download_sdk_if_missing(&manifest_dir);
+    fs::create_dir_all(&resources_dir)
+        .expect("Failed to create resources directory");
 
-    // Пути после скачивания
-    let wireguard_src = resources_dir.join("wireguard.dll");
-    let wintun_src = resources_dir.join("wintun.dll");
+    println!(
+        "cargo:warning=Resources dir: {}",
+        resources_dir.display()
+    );
 
-    if !wireguard_src.exists() || !wintun_src.exists() {
-        panic!("DLL files not found even after download attempt");
+    // ---------------------------------------------------------
+    // Copy helper
+    // ---------------------------------------------------------
+
+    fn copy_first_existing(
+        manifest_dir: &PathBuf,
+        candidates: &[&str],
+        dest: &PathBuf,
+        label: &str,
+    ) {
+        for rel in candidates {
+            let src = manifest_dir.join(rel);
+
+            println!(
+                "cargo:warning=Checking {} at {}",
+                label,
+                src.display()
+            );
+
+            if src.exists() {
+                fs::copy(&src, dest)
+                    .unwrap_or_else(|e| {
+                        panic!(
+                            "Failed to copy {} from {}: {}",
+                            label,
+                            src.display(),
+                            e
+                        )
+                    });
+
+                println!(
+                    "cargo:warning=Copied {} from {}",
+                    label,
+                    src.display()
+                );
+
+                return;
+            }
+        }
+
+        panic!(
+            "{} not found in any expected SDK path",
+            label
+        );
     }
 
-    // Копируем в resources (для бандла)
-    fs::copy(&wireguard_src, resources_dir.join("wireguard.dll"))
-        .expect("Failed to copy wireguard.dll");
-    fs::copy(&wintun_src, resources_dir.join("wintun.dll"))
-        .expect("Failed to copy wintun.dll");
+    // ---------------------------------------------------------
+    // Copy WireGuard DLL
+    // ---------------------------------------------------------
 
+    copy_first_existing(
+        &manifest_dir,
+        &wg_candidates,
+        &resources_dir.join("wireguard.dll"),
+        "wireguard.dll",
+    );
+
+    // ---------------------------------------------------------
+    // Copy Wintun DLL
+    // ---------------------------------------------------------
+
+    copy_first_existing(
+        &manifest_dir,
+        &wintun_candidates,
+        &resources_dir.join("wintun.dll"),
+        "wintun.dll",
+    );
+
+    // ---------------------------------------------------------
     // Windows manifest
+    // ---------------------------------------------------------
+
     let mut res = winres::WindowsResource::new();
+
     res.set_manifest_file("src-tauri.manifest");
-    res.compile().expect("Failed to compile Windows resources");
+
+    res.compile()
+        .expect("Failed to compile Windows resources");
 
     println!("cargo:warning=build.rs completed successfully");
-}
-
-// Автоматическая загрузка SDK
-fn download_sdk_if_missing(manifest_dir: &PathBuf) {
-    let sdk_dir = manifest_dir.join("sdk");
-    let wireguard_dll = sdk_dir.join("wireguard-nt/bin/amd64/wireguard.dll");
-
-    if wireguard_dll.exists() {
-        return; // уже есть
-    }
-
-    println!("cargo:warning=SDK not found. Downloading...");
-
-    std::fs::create_dir_all(&sdk_dir).ok();
-
-    // WireGuard-NT
-    let wg_zip = sdk_dir.join("wireguard-nt.zip");
-    let _ = reqwest::blocking::get("https://download.wireguard.com/wireguard-nt/wireguard-nt-1.1.zip")
-        .expect("Failed to download wireguard-nt")
-        .copy_to(&mut std::fs::File::create(&wg_zip).unwrap());
-
-    zip_extract::extract(std::fs::File::open(&wg_zip).unwrap(), &sdk_dir, true).ok();
-
-    // Wintun
-    let wintun_zip = sdk_dir.join("wintun.zip");
-    let _ = reqwest::blocking::get("https://www.wintun.net/builds/wintun-0.14.1.zip")
-        .expect("Failed to download wintun")
-        .copy_to(&mut std::fs::File::create(&wintun_zip).unwrap());
-
-    zip_extract::extract(std::fs::File::open(&wintun_zip).unwrap(), &sdk_dir, true).ok();
-
-    println!("cargo:warning=SDKs downloaded successfully");
 }
