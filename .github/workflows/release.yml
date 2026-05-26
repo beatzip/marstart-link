@@ -2,82 +2,112 @@ name: Release
 
 on:
   push:
-    tags: ['v*']
+    tags:
+      - 'v*'
   workflow_dispatch:
 
 jobs:
   release:
     permissions:
       contents: write
+
     runs-on: windows-latest
 
-    steps:
-      - uses: actions/checkout@v4
+    env:
+      CARGO_TERM_COLOR: always
 
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ---------------------------
+      # Node.js
+      # ---------------------------
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
 
+      # ---------------------------
+      # Rust
+      # ---------------------------
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Create dummy assets
-        shell: pwsh
-        run: |
-          # 1. Frontend dist (заглушка для tauri::generate_context!)
-          New-Item -ItemType Directory -Force -Path "dist"
-          Set-Content -Path "dist/index.html" -Value "<html><body>Game Accelerator MVP</body></html>"
-          
-          # 2. Создаём папку для иконок
-          New-Item -ItemType Directory -Force -Path "src-tauri/icons"
-          
-          # 3. Валидный минимальный PNG (1x1 прозрачный) через Base64
-          $pngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
-          $pngBytes = [Convert]::FromBase64String($pngBase64)
-          [System.IO.File]::WriteAllBytes("src-tauri/icons/icon.png", $pngBytes)
-          [System.IO.File]::WriteAllBytes("src-tauri/icons/32x32.png", $pngBytes)
-          [System.IO.File]::WriteAllBytes("src-tauri/icons/128x128.png", $pngBytes)
-          
-          # 4. Валидный ICO через System.Drawing (нативный Windows API)
-          Add-Type -AssemblyName System.Drawing
-          $bmp = New-Object System.Drawing.Bitmap(16, 16)
-          $hIcon = $bmp.GetHicon()
-          $icon = [System.Drawing.Icon]::FromHandle($hIcon)
-          $fs = [System.IO.File]::Create("src-tauri/icons/icon.ico")
-          $icon.Save($fs)
-          $fs.Close()
-          $bmp.Dispose()
-          
-          Write-Host "✅ Valid icons and dist created"
-          Get-ChildItem "src-tauri/icons" | Format-Table Name, Length
-          Get-ChildItem "dist" | Format-Table Name, Length
+      # ---------------------------
+      # Install frontend deps
+      # ---------------------------
+      - name: Install frontend dependencies
+        run: npm ci
 
+      # ---------------------------
+      # Build frontend (Vite/React)
+      # ---------------------------
+      - name: Build frontend
+        run: npm run build
+
+      # ---------------------------
+      # Download WireGuard + Wintun SDK
+      # ---------------------------
       - name: Download SDKs
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path "src-tauri/sdk"
-          Invoke-WebRequest -Uri "https://download.wireguard.com/wireguard-nt/wireguard-nt-1.1.zip" -OutFile "src-tauri/sdk/wg.zip"
-          Expand-Archive -Path "src-tauri/sdk/wg.zip" -DestinationPath "src-tauri/sdk/" -Force
-          Invoke-WebRequest -Uri "https://www.wintun.net/builds/wintun-0.14.1.zip" -OutFile "src-tauri/sdk/wintun.zip"
-          Expand-Archive -Path "src-tauri/sdk/wintun.zip" -DestinationPath "src-tauri/sdk/" -Force
-          Write-Host "✅ SDKs downloaded and extracted"
 
-      - name: Clean cache
+          # WireGuard-NT
+          Invoke-WebRequest `
+            -Uri "https://download.wireguard.com/wireguard-nt/wireguard-nt-1.1.zip" `
+            -OutFile "src-tauri/sdk/wireguard-nt.zip"
+
+          Expand-Archive `
+            -Path "src-tauri/sdk/wireguard-nt.zip" `
+            -DestinationPath "src-tauri/sdk/wireguard-nt" `
+            -Force
+
+          # Wintun
+          Invoke-WebRequest `
+            -Uri "https://www.wintun.net/builds/wintun-0.14.1.zip" `
+            -OutFile "src-tauri/sdk/wintun.zip"
+
+          Expand-Archive `
+            -Path "src-tauri/sdk/wintun.zip" `
+            -DestinationPath "src-tauri/sdk/wintun" `
+            -Force
+
+          Write-Host "SDKs downloaded successfully"
+
+      # ---------------------------
+      # Verify required files
+      # ---------------------------
+      - name: Verify frontend build
+        shell: pwsh
         run: |
-          Remove-Item -Recurse -Force src-tauri\target -ErrorAction SilentlyContinue
+          if (!(Test-Path "dist/index.html")) {
+            Write-Error "Frontend build failed: dist/index.html missing"
+            exit 1
+          }
 
+          Write-Host "Frontend build verified"
+
+      # ---------------------------
+      # Cargo check
+      # ---------------------------
       - name: Cargo check
         working-directory: src-tauri
         run: cargo check --verbose
 
+      # ---------------------------
+      # Build Tauri App
+      # ---------------------------
       - name: Build Tauri App
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Game Accelerator ${{ github.ref_name }}"
           releaseDraft: false
-          prerelease: true
+          prerelease: false
           projectPath: src-tauri
