@@ -1,44 +1,144 @@
-# 🎮 Game Accelerator (Клиент SD-WAN на базе WireGuard-NT)
+<div align="center">
 
-Ускоритель игр / SD-WAN клиент для Windows на базе **Tauri** и **WireGuard-NT**. Проект направлен на создание среды с низкой задержкой и высоким уровнем безопасности для игр и специфических приложений за счет интеллектуальной маршрутизации и перехвата сетевого трафика на низком уровне.
+# 🎮 Game Accelerator
 
-> ⚠️ **Текущий статус: Alpha / Активная разработка (Work in Progress)**
-> Проект находится на ранней стадии разработки. Базовое управление сетевым адаптером уже реализовано, но **модуль бинарной сериализации конфигурации WireGuard еще не завершен**, поэтому на данный момент **установить зашифрованный туннель невозможно**. Мы будем рады вашему участию!
+### Low-Latency SD-WAN / Gaming VPN Client for Windows  
+### Powered by Tauri + Rust + WireGuard-NT
 
-## ✨ Ключевые особенности (Уже реализовано)
+<img src="https://img.shields.io/badge/platform-Windows-blue?style=for-the-badge" />
+<img src="https://img.shields.io/badge/backend-Rust-orange?style=for-the-badge" />
+<img src="https://img.shields.io/badge/frontend-Tauri-black?style=for-the-badge" />
+<img src="https://img.shields.io/badge/status-Alpha-blueviolet?style=for-the-badge" />
 
-- 🛡️ **Взаимодействие с драйверами на низком уровне**: Динамическая загрузка `wireguard-nt` и `wintun` DLL через FFI с прямыми вызовами сетевых API ядра Windows.
-- 🔄 **Безопасность при сбоях (Panic Hook)**: Глобальный перехват Rust Panic гарантирует автоматическую очистку сетевых адаптеров при аварийном завершении программы, **предотвращая потерю сети у пользователя**.
-- 🛣️ **Управление маршрутизацией и MTU**: Автоматическая настройка MTU интерфейса (1280) и принудительное изменение Metric в таблице маршрутизации Windows для приоритизации трафика через канал ускорения.
-- 🪵 **Логирование корпоративного уровня**: Ежедневная ротация логов на базе `tracing` и `rolling` для удобной отладки сетевых проблем.
-- 🖥️ **Легковесный UI**: На базе Tauri (Rust + Web), минимальное потребление оперативной памяти.
+</div>
 
-## 🚧 План работ (TODO / Еще не реализовано)
+---
 
-- [ ] **Сериализатор WireGuard**: Преобразование распарсенного Config в бинарный Blob (C-Struct), необходимый для `wireguard-nt` (текущая точка остановки).
-- [ ] **Асинхронное разрешение DNS**: Перенос DNS-резолвинга Endpoint в `tokio::task::spawn_blocking` для предотвращения блокировки UI-потока.
-- [ ] **Multi-path / Split Tunneling**: Реализация разделения трафика на уровне процессов или доменов.
-- [ ] **Интеграция с фронтендом**: Полноценная синхронизация состояний между UI (Vue/React) и бэкендом Rust через IPC.
+## 🚀 About
 
-## 🛠️ Технологический стек
+**Game Accelerator** is an experimental Windows SD-WAN / Gaming VPN client focused on:
 
-- **Основной фреймворк**: [Tauri](https://tauri.app/) (v1.5)
-- **Бэкенд**: Rust (Edition 2021)
-- **Сетевые драйверы**: [WireGuard-NT](https://git.zx2c4.com/wireguard-nt/), [Wintun](https://www.wintun.net/)
-- **Системные API**: `windows-rs` (Win32 NetworkManagement, IpHelper)
+- lower latency;
+- stable routing;
+- cleaner packet paths;
+- lightweight desktop experience;
+- direct integration with WireGuard-NT.
 
-## 📦 Руководство по сборке
+The project combines:
 
-### Требования
-- Windows 10/11 (x64 или ARM64)
-- [Rust](https://www.rust-lang.org/tools/install) (инструментарий MSVC)
-- [Node.js](https://nodejs.org/) & pnpm/npm
-- Visual Studio Build Tools (с компонентом "Разработка классических приложений на C++")
+- ⚡ **Rust backend**
+- 🖥️ **Tauri desktop UI**
+- 🛡️ **WireGuard-NT + Wintun**
+- 🎯 **Gaming-oriented routing logic**
 
-### Запуск в режиме разработки
+Designed primarily for:
+- competitive gaming;
+- custom VPS tunnels;
+- controlled routing environments;
+- low-overhead networking.
+
+---
+
+## ✨ Current Features
+
+### 🛡️ Native WireGuard-NT Integration
+- dynamic loading of WireGuard-NT and Wintun;
+- low-level Windows networking integration;
+- direct interaction with Win32 networking APIs.
+
+### 🌐 Tunnel Management
+- start / stop tunnel;
+- runtime tunnel status;
+- traffic statistics (TX/RX);
+- route metric management;
+- MTU configuration.
+
+### 🧠 Smart Routing Foundation
+- custom route injection;
+- metric prioritization;
+- groundwork for split tunneling;
+- preparation for advanced SD-WAN logic.
+
+### 🖥️ Modern Lightweight UI
+- minimal black & blue interface;
+- lightweight desktop footprint;
+- React + Tauri frontend;
+- live connection state updates.
+
+### ☁️ Custom VPS Profiles
+- add your own VPS servers;
+- manage multiple profiles;
+- save and switch configurations;
+- foundation for future import/export support.
+
+---
+
+## 📸 Interface Style
+
+Current UI direction:
+
+- ⚫ black minimalistic layout
+- 🔵 blue accent elements
+- 🎯 focus on readability and low visual noise
+
+---
+
+## 🏗️ Tech Stack
+
+- **Frontend:** React + Vite + Tauri
+- **Backend:** Rust
+- **Network Drivers:** WireGuard-NT / Wintun
+- **Windows APIs:** windows-rs
+- **CI/CD:** GitHub Actions
+
+---
+
+## 📦 Development
+
+### Requirements
+
+- Windows 10 / 11
+- Rust
+- Node.js 20+
+- Visual Studio Build Tools
+
+### Install
+
 ```bash
-# 1. Установите зависимости фронтенда
 npm install
 
-# 2. Запустите среду разработки Tauri (первая компиляция Rust может занять несколько минут)
+Development
 npm run tauri dev
+Release Build
+npm run build
+npm run tauri build
+🚧 Roadmap
+ finalize WireGuard config serialization
+ stabilize DNS & endpoint handling
+ advanced VPS profile management
+ split tunneling
+ real-time network diagnostics
+ improved telemetry and logs
+ polished production UI
+ automatic latency-based routing
+⚠️ Status
+
+Project is currently in Alpha.
+
+Core networking components are already being integrated, but the project is still under active development and testing.
+
+🤝 Contributions
+
+Contributions are welcome.
+
+Especially useful areas:
+
+Rust networking
+Windows routing
+WireGuard internals
+UI/UX
+diagnostics & telemetry
+testing on real VPS setups
+<div align="center">
+Built for low-latency networking on Windows
+</div> ```
