@@ -1,128 +1,102 @@
-````md id="full-readme"
-<div align="center">
-
 # 🎮 Game Accelerator
 
-### Low-Latency SD-WAN / Gaming VPN Client for Windows  
-### Powered by Tauri + Rust + WireGuard-NT
+<div align="center">
 
-<img src="https://img.shields.io/badge/platform-Windows-blue?style=for-the-badge" />
-<img src="https://img.shields.io/badge/backend-Rust-orange?style=for-the-badge" />
-<img src="https://img.shields.io/badge/frontend-Tauri-black?style=for-the-badge" />
-<img src="https://img.shields.io/badge/status-Alpha-blueviolet?style=for-the-badge" />
+## Low-Latency SD-WAN / Gaming VPN Client for Windows
+
+Built with **Rust**, **Tauri**, **WireGuard-NT**, and **Wintun**
+
+<br>
+
+<img src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6?style=for-the-badge&logo=windows&logoColor=white" />
+<img src="https://img.shields.io/badge/backend-Rust-000000?style=for-the-badge&logo=rust" />
+<img src="https://img.shields.io/badge/frontend-Tauri-24C8DB?style=for-the-badge&logo=tauri&logoColor=white" />
+<img src="https://img.shields.io/badge/network-WireGuard--NT-blueviolet?style=for-the-badge" />
+<img src="https://img.shields.io/badge/status-Alpha-181717?style=for-the-badge" />
+
+<br><br>
+
+**Experimental gaming-focused SD-WAN client with custom VPS routing, low-overhead networking, and modern desktop UI.**
 
 </div>
 
 ---
 
-# 🚀 About
-
-**Game Accelerator** is an experimental Windows SD-WAN / Gaming VPN client designed for:
-
-- competitive gaming;
-- low-latency routing;
-- custom VPS tunnels;
-- stable packet delivery;
-- lightweight desktop networking.
-
-The project combines:
-
-- ⚡ Rust backend performance
-- 🖥️ Tauri desktop UI
-- 🛡️ WireGuard-NT + Wintun
-- 🌐 Windows native networking APIs
-
-The main goal is to create a modern low-overhead networking client capable of intelligent traffic routing and future SD-WAN functionality for gaming environments.
-
----
-
-# ✨ Current Features
+# ✨ Features
 
 ## 🛡️ Native WireGuard-NT Integration
 
-- Dynamic loading of WireGuard-NT and Wintun
-- Direct interaction with low-level Windows networking APIs
-- Tunnel initialization groundwork
-- Safe runtime handling of driver interactions
-- DLL loading fixes for Windows environments
+* Dynamic loading of WireGuard-NT and Wintun
+* Low-level Windows networking integration
+* Runtime tunnel management
+* Native Win32 networking APIs
+* Safer DLL loading behavior
 
 ---
 
-## 🌐 Tunnel Management
+## 🌐 Tunnel & Routing Management
 
-- Start / stop tunnel logic
-- Runtime tunnel status API
-- Traffic statistics (TX/RX)
-- Connection state polling
-- Adapter initialization
-- MTU configuration support
-
----
-
-## 🛣️ Routing Management
-
-- Route creation and updates
-- Metric prioritization
-- Traffic redirection groundwork
-- Windows routing table integration
-- Preparation for split-tunnel functionality
+* Tunnel start / stop handling
+* Runtime status monitoring
+* TX/RX statistics
+* Automatic route injection
+* MTU management
+* Route metric prioritization
+* Split-tunnel groundwork
 
 ---
 
 ## ☁️ Custom VPS Profiles
 
-- Add custom VPS servers
-- Store local profiles
-- Switch between profiles
-- Profile management UI
-- Foundation for future import/export support
+* Add your own VPS servers
+* Store local profiles
+* Switch configurations quickly
+* Multi-profile architecture
+* Future import/export support
 
 ---
 
-## 🖥️ User Interface
+## 🖥️ Modern Desktop UI
 
-Current UI direction:
-
-- ⚫ black minimalistic layout
-- 🔵 blue accent elements
-- 🎯 gaming-oriented design
-- 🪶 lightweight desktop rendering
-
-Frontend stack:
-- React
-- Vite
-- Tauri
+* Black minimal interface
+* Blue accent styling
+* Lightweight rendering
+* React + Tauri frontend
+* Live connection updates
 
 ---
 
-## 🪵 Logging & Diagnostics
+# 📸 UI Direction
 
-- Structured Rust logging
-- Runtime diagnostics
-- Panic handling foundation
-- Safer adapter cleanup behavior
-- Preparation for advanced telemetry
+<div align="center">
+
+| Theme           | Style            |
+| --------------- | ---------------- |
+| ⚫ Dark          | Minimalistic     |
+| 🔵 Blue accents | Gaming-oriented  |
+| 🪶 Lightweight  | Low visual noise |
+
+</div>
 
 ---
 
-# 🏗️ Tech Stack
+# 🏗️ Architecture
 
-## Frontend
-- React
-- Vite
-- Tauri
-
-## Backend
-- Rust (Edition 2021)
-
-## Networking
-- WireGuard-NT
-- Wintun
-- Windows IP Helper API
-- windows-rs
-
-## CI/CD
-- GitHub Actions
+```text
+Frontend (React + Tauri)
+        │
+        ▼
+Tauri IPC Bridge
+        │
+        ▼
+Rust Backend
+        │
+ ┌───────────────┐
+ │ WireGuard-NT  │
+ │ Wintun        │
+ │ Windows APIs  │
+ └───────────────┘
+```
 
 ---
 
@@ -134,7 +108,7 @@ project-root/
 ├── src/                    # Frontend (React/Vite)
 ├── src-tauri/              # Rust backend + networking
 ├── dist/                   # Frontend production build
-├── .github/workflows/      # CI/CD pipelines
+├── .github/workflows/      # GitHub Actions pipelines
 ├── tauri.conf.json         # Tauri configuration
 ├── package.json
 └── README.md
@@ -142,21 +116,43 @@ project-root/
 
 ---
 
-# 📦 Development
+# ⚙️ Tech Stack
 
-## Requirements
+## Frontend
 
-- Windows 10 / 11
-- Rust stable toolchain
-- Node.js 20+
-- npm or pnpm
-- Visual Studio Build Tools with C++ support
+* React
+* Vite
+* Tauri
+
+## Backend
+
+* Rust (Edition 2021)
+
+## Networking
+
+* WireGuard-NT
+* Wintun
+* Windows IP Helper API
+* windows-rs
+
+## CI/CD
+
+* GitHub Actions
 
 ---
 
-# 🔧 Installation
+# 🚀 Getting Started
 
-Install frontend dependencies:
+## Requirements
+
+* Windows 10 / 11
+* Rust stable toolchain
+* Node.js 20+
+* Visual Studio Build Tools
+
+---
+
+## Install Dependencies
 
 ```bash
 npm install
@@ -164,9 +160,7 @@ npm install
 
 ---
 
-# ▶️ Development Mode
-
-Run Tauri development environment:
+## Development Mode
 
 ```bash
 npm run tauri dev
@@ -174,9 +168,7 @@ npm run tauri dev
 
 ---
 
-# 🏭 Production Build
-
-Build frontend and desktop application:
+## Production Build
 
 ```bash
 npm run build
@@ -185,18 +177,19 @@ npm run tauri build
 
 ---
 
-# 🚀 GitHub Release Build
+# 🚀 Automated Releases
 
-The project includes automated Windows release builds via GitHub Actions.
+The repository includes a GitHub Actions pipeline for automated Windows builds.
 
-Workflow:
-- installs Node.js and Rust;
-- builds frontend assets;
-- downloads WireGuard SDKs;
-- compiles Tauri application;
-- creates GitHub Release artifacts automatically.
+Pipeline responsibilities:
 
-Release pipeline file:
+* install Node.js & Rust
+* build frontend assets
+* download networking SDKs
+* compile Tauri application
+* publish GitHub Release artifacts
+
+Workflow location:
 
 ```text
 .github/workflows/release.yml
@@ -206,46 +199,43 @@ Release pipeline file:
 
 # 🚧 Roadmap
 
-## Networking
-- [ ] Finalize WireGuard config serialization
-- [ ] Improve DNS resolution pipeline
-- [ ] Stabilize endpoint handling
-- [ ] Improve adapter lifecycle management
+## Core Networking
+
+* [ ] Finalize WireGuard serialization
+* [ ] Improve DNS resolution
+* [ ] Stabilize endpoint handling
+* [ ] Improve adapter lifecycle management
 
 ## SD-WAN Features
-- [ ] Split tunneling
-- [ ] Multi-route support
-- [ ] Smart route prioritization
-- [ ] Dynamic latency-based routing
 
-## VPS System
-- [ ] Import/export profiles
-- [ ] Encrypted profile storage
-- [ ] Multi-server management
-- [ ] Connection testing
+* [ ] Split tunneling
+* [ ] Smart route prioritization
+* [ ] Multi-route balancing
+* [ ] Dynamic latency routing
 
-## UI/UX
-- [ ] Better dashboard
-- [ ] Live latency graphs
-- [ ] Connection quality indicators
-- [ ] Real-time diagnostics panel
+## VPS Features
 
-## Diagnostics
-- [ ] Advanced logs
-- [ ] Crash reports
-- [ ] Adapter state diagnostics
-- [ ] Route inspection tools
+* [ ] Encrypted profile storage
+* [ ] Import/export support
+* [ ] Connection testing
+* [ ] Multi-server management
+
+## UI & Diagnostics
+
+* [ ] Real-time graphs
+* [ ] Connection quality indicators
+* [ ] Advanced diagnostics panel
+* [ ] Better telemetry & logging
 
 ---
 
-# ⚠️ Current Status
+# ⚠️ Project Status
 
-The project is currently in **Alpha**.
+> **Alpha / Active Development**
 
-Core networking systems are actively being implemented and stabilized.  
-Some WireGuard configuration handling and runtime networking functionality are still under development.
+Core systems are already integrated, but the project is still under active development and stabilization.
 
-This is not yet considered production-ready software.
+This software should currently be considered experimental.
 
 ---
 
@@ -253,13 +243,14 @@ This is not yet considered production-ready software.
 
 Contributions are welcome.
 
-Useful contribution areas:
-- Rust networking
-- Windows routing APIs
-- WireGuard internals
-- UI/UX improvements
-- Diagnostics & telemetry
-- Testing on real VPS environments
+Especially useful areas:
+
+* Rust networking
+* Windows routing
+* WireGuard internals
+* UI/UX
+* Diagnostics & telemetry
+* Real-world VPS testing
 
 ---
 
@@ -271,7 +262,6 @@ License not specified yet.
 
 <div align="center">
 
-### Built for low-latency networking on Windows
+## Built for low-latency networking on Windows
 
 </div>
-````
