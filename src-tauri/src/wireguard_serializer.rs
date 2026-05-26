@@ -15,6 +15,10 @@ pub fn serialize_config(config: &ParsedConfig) -> Result<Vec<u8>, String> {
     let mut blob = vec![0u8; total_size];
     let mut offset = 0;
 
+    if !config.dns_servers.is_empty() {
+        tracing::info!("DNS servers parsed: {:?}", config.dns_servers);
+    }
+
     // 2. Заполняем Interface
     let mut iface_flags = WIREGUARD_INTERFACE_HAS_PRIVATE_KEY | WIREGUARD_INTERFACE_REPLACE_PEERS;
     if config.listen_port.is_some() {

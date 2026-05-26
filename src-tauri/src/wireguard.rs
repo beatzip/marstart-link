@@ -9,14 +9,14 @@ use std::os::windows::ffi::OsStrExt;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use libloading::Library;
+use libloading::os::windows::{Library, LOAD_WITH_ALTERED_SEARCH_PATH};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use windows::Win32::NetworkManagement::IpHelper::{
-    ConvertInterfaceLuidToIndex, GetIfEntry2, GetIpForwardEntry2, GetIpInterfaceEntry,
-    InitializeIpInterfaceEntry, SetIpForwardEntry2, SetIpInterfaceEntry, MIB_IF_ROW2,
-    MIB_IPINTERFACE_ROW,
+    ConvertInterfaceLuidToIndex, CreateIpForwardEntry2, GetIfEntry2, GetIpForwardEntry2,
+    GetIpInterfaceEntry, InitializeIpInterfaceEntry, SetIpForwardEntry2, SetIpInterfaceEntry,
+    MIB_IF_ROW2, MIB_IPINTERFACE_ROW,
 };
 use windows::Win32::NetworkManagement::Ndis::{IfOperStatusUp, NET_LUID_LH};
 use windows::Win32::Networking::WinSock::AF_INET;
@@ -88,7 +88,8 @@ pub struct WireGuardDll {
 impl WireGuardDll {
     pub fn load(path: &str) -> Result<Self, String> {
         unsafe {
-            let lib = Library::new(path).map_err(|e| format!("Failed to load DLL: {e}"))?;
+            let lib = Library::load_with_flags(path, LOAD_WITH_ALTERED_SEARCH_PATH)
+                .map_err(|e| format!("Failed to load DLL: {e}"))?;
             
             let create_adapter_fn = *lib.get(b"WireGuardCreateAdapter").map_err(|e| format!("Symbol not found: {e}"))?;
             let close_adapter_fn = *lib.get(b"WireGuardCloseAdapter").map_err(|e| format!("Symbol not found: {e}"))?;
@@ -197,6 +198,7 @@ impl WireGuardDll {
 pub struct TunnelState {
     pub dll: Arc<WireGuardDll>,
     pub adapter: Arc<Mutex<Option<WireGuardAdapterHandle>>>,
+    pub status: Arc<Mutex<TunnelStatus>>,
 }
 
 impl TunnelState {
@@ -204,6 +206,12 @@ impl TunnelState {
         Self {
             dll,
             adapter: Arc::new(Mutex::new(None)),
+            status: Arc::new(Mutex::new(TunnelStatus {
+                is_active: false,
+                adapter_name: None,
+                interface_index: None,
+                mtu: None,
+            })),
         }
     }
 
@@ -229,6 +237,12 @@ pub struct TunnelStats {
     pub is_active: bool,
     pub total_tx: u64,
     pub total_rx: u64,
+}
+
+#[tauri::command]
+pub async fn tunnel_get_status(state: State<'_, TunnelState>) -> Result<TunnelStatus, String> {
+    let status = state.status.lock().unwrap_or_else(|p| p.into_inner()).clone();
+    Ok(status)
 }
 
 // ============================================================================
@@ -302,12 +316,15 @@ pub async fn tunnel_apply_config(
     set_interface_mtu(interface_index, 1280)?;
     force_route_metrics(interface_index, &expected_routes)?;
 
-    Ok(TunnelStatus {
+    let status = TunnelStatus {
         is_active: true,
         adapter_name: Some(adapter_name),
         interface_index: Some(interface_index),
         mtu: Some(1280),
-    })
+    };
+    *state.status.lock().unwrap_or_else(|p| p.into_inner()) = status.clone();
+
+    Ok(status)
 }
 
 #[tauri::command]
@@ -317,6 +334,12 @@ pub async fn tunnel_disconnect(state: State<'_, TunnelState>) -> Result<(), Stri
         let _ = state.dll.set_state(handle, WireGuardAdapterState::Down);
         state.dll.close_adapter(handle);
     }
+    *state.status.lock().unwrap_or_else(|p| p.into_inner()) = TunnelStatus {
+        is_active: false,
+        adapter_name: None,
+        interface_index: None,
+        mtu: None,
+    };
     Ok(())
 }
 
@@ -437,21 +460,25 @@ fn force_route_metrics(interface_index: u32, expected_cidrs: &[String]) -> Resul
     if expected_cidrs.len() > 50 {
         return Err("Too many routes (max 50)".into());
     }
+
     for cidr in expected_cidrs {
         let (ip, prefix_len) = parse_cidr(cidr)?;
         if let std::net::IpAddr::V4(ipv4) = ip {
             let mut row = unsafe { create_forward_row(ipv4, prefix_len, interface_index) };
             unsafe {
-                if GetIpForwardEntry2(&mut row).is_err() {
-                    tracing::warn!("Route not found for {cidr}, skipping metric force");
-                    continue;
-                }
                 row.Metric = 8;
-                if SetIpForwardEntry2(&mut row).is_err() {
-                    tracing::warn!("Failed to set metric for {cidr}");
+                if GetIpForwardEntry2(&mut row).is_ok() {
+                    if SetIpForwardEntry2(&mut row).is_err() {
+                        tracing::warn!("Failed to set metric for {cidr}");
+                    }
+                } else if CreateIpForwardEntry2(&row).is_err() {
+                    tracing::warn!("Failed to create route for {cidr}");
+                } else {
+                    tracing::info!("Created missing route for {cidr}");
                 }
             }
         }
     }
+
     Ok(())
 }

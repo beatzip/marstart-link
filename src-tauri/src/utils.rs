@@ -1,9 +1,7 @@
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use tauri::AppHandle;
-use windows::Win32::NetworkManagement::IpHelper::{
-    InitializeIpForwardEntry, MIB_IPFORWARD_ROW2,
-};
+use windows::Win32::NetworkManagement::IpHelper::{InitializeIpForwardEntry, MIB_IPFORWARD_ROW2};
 use windows::Win32::Networking::WinSock::AF_INET;
 
 pub fn resolve_dll_path(handle: &AppHandle, dll_name: &str) -> Result<PathBuf, String> {
