@@ -33,9 +33,9 @@ jobs:
       # Rust
       # ---------------------------
       - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
-        uses: dtolnay/rust-toolchain@stable
 
       # ---------------------------
       # Install frontend deps
@@ -100,7 +100,7 @@ jobs:
       - name: Cargo check
         working-directory: src-tauri
         run: cargo check --verbose
-              - name: Install Tauri dependencies
+      - name: Install Tauri dependencies
         run: |
           rustup target add x86_64-pc-windows-msvc
 
