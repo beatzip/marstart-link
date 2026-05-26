@@ -1,509 +1,680 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { invoke } from '@tauri-apps/api'; // ✅ Исправлено: стандартный импорт для Tauri v1
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
+import { invoke } from '@tauri-apps/api/tauri';
 
-// ============================================================
-// Types
-// ============================================================
-
-interface TunnelStatus {
+type TunnelStatus = {
   is_active: boolean;
   adapter_name: string | null;
   interface_index: number | null;
   mtu: number | null;
-}
+};
 
-interface SavedConfig {
+type TunnelStats = {
+  is_active: boolean;
+  total_tx: number;
+  total_rx: number;
+};
+
+type SavedProfile = {
+  id: string;
+  name: string;
+  privateKey: string;
   publicKey: string;
   endpoint: string;
   address: string;
   allowedIps: string;
-}
+  dnsServers: string;
+};
 
-type AppPhase = 'idle' | 'connecting' | 'connected' | 'disconnecting';
+type Phase = 'idle' | 'connecting' | 'connected' | 'disconnecting';
 
-// ============================================================
-// Constants
-// ============================================================
-
-const STORAGE_KEY = 'wg_config_v1';
+const PROFILE_KEY = 'ga_vps_profiles_v1';
+const ACTIVE_PROFILE_KEY = 'ga_active_profile_v1';
+const POLL_MS = 2500;
 const MAX_ROUTES = 50;
-const POLL_INTERVAL_MS = 3000; // Опрос статуса каждые 3 секунды
 
-// ============================================================
-// Validation helpers
-// ============================================================
+const emptyProfile = (): SavedProfile => ({
+  id: crypto.randomUUID?.() ?? `profile_${Date.now()}`,
+  name: 'Новый VPS',
+  privateKey: '',
+  publicKey: '',
+  endpoint: '',
+  address: '10.0.0.2/32',
+  allowedIps: '0.0.0.0/0',
+  dnsServers: '1.1.1.1, 8.8.8.8',
+});
 
-function validateWgKey(key: string, fieldName: string): string | null {
-  const trimmed = key.trim();
-  if (!trimmed) return `${fieldName}: ключ не может быть пустым`;
-  
-  // ✅ Улучшено: Строгая проверка Base64 (32 байта = 43-44 символа)
-  if (!/^[A-Za-z0-9+/]{42,43}={0,2}$/.test(trimmed)) {
-    return `${fieldName}: неверный формат Base64 (ожидается 43-44 символа)`;
-  }
-  
+function validateBase64Key(value: string, label: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return `${label}: пустое значение`;
   try {
     const decoded = atob(trimmed);
-    if (decoded.length !== 32)
-      return `${fieldName}: неверная длина после decode — ${decoded.length} байт (ожидается 32)`;
+    return decoded.length === 32 ? null : `${label}: ожидается 32 байта`;
   } catch {
-    return `${fieldName}: неверный формат Base64`;
+    return `${label}: неверный Base64`;
   }
-  return null;
 }
 
-function validateCidr(cidr: string, fieldName: string): string | null {
-  const trimmed = cidr.trim();
-  if (!trimmed) return `${fieldName}: не может быть пустым`;
-  const parts = trimmed.split('/');
-  if (parts.length !== 2) return `${fieldName}: ожидается формат IP/маска (например 10.0.0.2/32)`;
-  const prefix = Number(parts[1]);
-  if (!Number.isInteger(prefix) || prefix < 0 || prefix > 32)
-    return `${fieldName}: маска должна быть числом от 0 до 32`;
-  const ipParts = parts[0].split('.');
-  if (ipParts.length !== 4 || ipParts.some(p => isNaN(Number(p)) || Number(p) < 0 || Number(p) > 255))
-    return `${fieldName}: неверный IP-адрес "${parts[0]}"`;
-  return null;
-}
+function validateEndpoint(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return 'Endpoint пустой';
 
-function validateEndpoint(endpoint: string): string | null {
-  const trimmed = endpoint.trim();
-  if (!trimmed) return 'Endpoint не может быть пустым';
-  try {
-    if (trimmed.startsWith('[')) {
-      const match = trimmed.match(/^\[(.+)\]:(\d+)$/);
-      if (!match) return 'Неверный IPv6 endpoint (ожидается [IP]:port)';
-      const port = Number(match[2]);
-      if (port < 1 || port > 65535) return `Порт вне диапазона: ${port}`;
-      return null;
-    }
-    const idx = trimmed.lastIndexOf(':');
-    if (idx === -1) return 'Формат: host:port или [IPv6]:port';
-    const host = trimmed.slice(0, idx);
-    const port = Number(trimmed.slice(idx + 1));
-    if (!host) return 'Пустой host';
-    if (!Number.isInteger(port) || port < 1 || port > 65535)
-      return `Неверный порт (ожидается 1–65535, получено "${trimmed.slice(idx + 1)}")`;
+  if (trimmed.startsWith('[')) {
+    const match = trimmed.match(/^\[(.+)\]:(\d+)$/);
+    if (!match) return 'Endpoint: формат [IPv6]:port';
+    const port = Number(match[2]);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) return 'Endpoint: неверный порт';
     return null;
-  } catch {
-    return 'Неверный endpoint';
   }
+
+  const idx = trimmed.lastIndexOf(':');
+  if (idx <= 0) return 'Endpoint: формат host:port';
+  const port = Number(trimmed.slice(idx + 1));
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return 'Endpoint: неверный порт';
+  return null;
 }
 
-function validateAllFields(
-  privateKey: string,
-  publicKey: string,
-  endpoint: string,
-  address: string,
-  allowedIps: string,
-): string | null {
-  return (
-    validateWgKey(privateKey, 'PrivateKey') ??
-    validateWgKey(publicKey, 'PublicKey') ??
-    validateEndpoint(endpoint) ??
-    validateCidr(address, 'Address') ??
-    (() => {
-      const routes = allowedIps.split(',').map(s => s.trim()).filter(Boolean);
-      if (routes.length === 0) return 'AllowedIPs: не может быть пустым';
-      if (routes.length > MAX_ROUTES) return `AllowedIPs: максимум ${MAX_ROUTES} маршрутов`;
-      for (const cidr of routes) {
-        const err = validateCidr(cidr, 'AllowedIPs');
-        if (err) return err;
+function validateCidrList(value: string, label: string): string | null {
+  const parts = value.split(',').map(s => s.trim()).filter(Boolean);
+  if (parts.length === 0) return `${label}: пусто`;
+  if (parts.length > MAX_ROUTES) return `${label}: максимум ${MAX_ROUTES}`;
+
+  for (const part of parts) {
+    const [ip, prefix] = part.split('/');
+    if (!ip || prefix === undefined) return `${label}: ожидается IP/маска`;
+
+    const prefixNum = Number(prefix);
+    const isV6 = ip.includes(':');
+    const maxPrefix = isV6 ? 128 : 32;
+    if (!Number.isInteger(prefixNum) || prefixNum < 0 || prefixNum > maxPrefix) {
+      return `${label}: маска должна быть 0–${maxPrefix}`;
+    }
+
+    if (!isV6) {
+      const octets = ip.split('.');
+      if (octets.length !== 4 || octets.some(v => Number.isNaN(Number(v)) || Number(v) < 0 || Number(v) > 255)) {
+        return `${label}: неверный IPv4 ${ip}`;
       }
-      return null;
-    })()
-  );
+    } else if (!ip.includes(':')) {
+      return `${label}: неверный IPv6 ${ip}`;
+    }
+  }
+  return null;
 }
 
-// ============================================================
-// Build config string
-// ============================================================
-
-function buildWireGuardConfig(
-  privateKey: string,
-  publicKey: string,
-  endpoint: string,
-  address: string,
-  allowedIps: string,
-): string {
-  return [
+function buildConfig(profile: SavedProfile): string {
+  const lines = [
     '[Interface]',
-    `PrivateKey = ${privateKey.trim()}`,
-    `Address = ${address.trim()}`,
+    `PrivateKey = ${profile.privateKey.trim()}`,
+    `Address = ${profile.address.trim()}`,
+  ];
+
+  if (profile.dnsServers.trim()) {
+    lines.push(`DNS = ${profile.dnsServers.trim()}`);
+  }
+
+  lines.push(
     '',
     '[Peer]',
-    `PublicKey = ${publicKey.trim()}`,
-    `Endpoint = ${endpoint.trim()}`,
-    `AllowedIPs = ${allowedIps.trim()}`,
+    `PublicKey = ${profile.publicKey.trim()}`,
+    `Endpoint = ${profile.endpoint.trim()}`,
+    `AllowedIPs = ${profile.allowedIps.trim()}`,
     'PersistentKeepalive = 25',
     '',
-  ].join('\n');
+  );
+
+  return lines.join('\n');
 }
 
-// ============================================================
-// Styles
-// ============================================================
-
-const S = {
-  root: {
-    padding: '24px 20px',
-    fontFamily: '"Segoe UI", system-ui, -apple-system, sans-serif',
-    maxWidth: '600px',
-    margin: '0 auto',
+const styles: Record<string, CSSProperties> = {
+  page: {
     minHeight: '100vh',
-    backgroundColor: '#0f1117',
-    color: '#e2e8f0',
-  } as React.CSSProperties,
-  header: { marginBottom: '24px' } as React.CSSProperties,
-  h1: {
-    fontSize: '20px', fontWeight: 600, color: '#f8fafc',
-    margin: '0 0 4px 0', letterSpacing: '-0.3px',
-  } as React.CSSProperties,
-  subtitle: { fontSize: '12px', color: '#64748b', margin: 0 } as React.CSSProperties,
+    background: 'linear-gradient(180deg, #06080f 0%, #0b1020 100%)',
+    color: '#e5eefb',
+    fontFamily: '"Segoe UI", system-ui, -apple-system, sans-serif',
+    padding: '24px',
+  },
+  shell: {
+    maxWidth: 1180,
+    margin: '0 auto',
+  },
+  topbar: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 16,
+    marginBottom: 20,
+  },
+  title: {
+    fontSize: 26,
+    fontWeight: 700,
+    margin: 0,
+    letterSpacing: '-0.03em',
+  },
+  subtitle: {
+    margin: '6px 0 0',
+    color: '#86a2c6',
+    fontSize: 13,
+  },
+  grid: {
+    display: 'grid',
+    gridTemplateColumns: '360px 1fr',
+    gap: 18,
+  },
   card: {
-    backgroundColor: '#1a1f2e', border: '1px solid #2d3748',
-    borderRadius: '10px', padding: '20px', marginBottom: '16px',
-  } as React.CSSProperties,
+    background: 'rgba(12, 18, 31, 0.94)',
+    border: '1px solid #183052',
+    borderRadius: 16,
+    boxShadow: '0 18px 50px rgba(0,0,0,0.28)',
+    padding: 18,
+  },
   cardTitle: {
-    fontSize: '13px', fontWeight: 600, color: '#94a3b8',
-    textTransform: 'uppercase' as const, letterSpacing: '0.06em', margin: '0 0 16px 0',
-  } as React.CSSProperties,
-  field: { marginBottom: '14px' } as React.CSSProperties,
+    margin: '0 0 14px',
+    fontSize: 13,
+    textTransform: 'uppercase',
+    letterSpacing: '0.08em',
+    color: '#7fa3d6',
+    fontWeight: 700,
+  },
   label: {
-    display: 'flex', alignItems: 'center', gap: '6px',
-    marginBottom: '6px', fontSize: '13px', fontWeight: 500, color: '#cbd5e1',
-  } as React.CSSProperties,
-  labelHint: { fontSize: '11px', color: '#475569', fontWeight: 400 } as React.CSSProperties,
-  input: (disabled: boolean, hasError: boolean): React.CSSProperties => ({
-    width: '100%', padding: '9px 12px', fontSize: '13px',
-    fontFamily: '"Cascadia Code", "Fira Code", "Consolas", monospace',
-    background: disabled ? '#111827' : '#0d1117',
-    border: `1px solid ${hasError ? '#ef4444' : '#2d3748'}`,
-    borderRadius: '6px', color: disabled ? '#475569' : '#e2e8f0',
-    boxSizing: 'border-box' as const, outline: 'none',
-    transition: 'border-color 0.15s', cursor: disabled ? 'not-allowed' : 'text',
-  }),
-  statusBox: (phase: AppPhase): React.CSSProperties => ({
-    padding: '12px 14px', borderRadius: '8px', fontSize: '13px',
-    lineHeight: '1.6', fontFamily: '"Cascadia Code", monospace',
-    whiteSpace: 'pre-wrap' as const, marginBottom: '16px', border: '1px solid',
-    ...(phase === 'connected'
-      ? { background: '#052e16', borderColor: '#166534', color: '#86efac' }
-      : phase === 'connecting' || phase === 'disconnecting'
-      ? { background: '#1c1f2e', borderColor: '#334155', color: '#94a3b8' }
-      : { background: '#1a1f2e', borderColor: '#2d3748', color: '#64748b' }),
-  }),
-  errorBox: {
-    padding: '10px 14px', borderRadius: '8px', fontSize: '13px',
-    background: '#2d0a0a', border: '1px solid #7f1d1d', color: '#fca5a5',
-    marginBottom: '16px', lineHeight: '1.5',
-  } as React.CSSProperties,
-  buttonRow: { display: 'flex', gap: '10px' } as React.CSSProperties,
-  btnConnect: (disabled: boolean): React.CSSProperties => ({
-    flex: 1, padding: '10px 20px', fontSize: '14px', fontWeight: 600,
-    borderRadius: '7px', border: 'none', cursor: disabled ? 'not-allowed' : 'pointer',
-    background: disabled ? '#1e3a5f' : 'linear-gradient(135deg, #2563eb, #1d4ed8)',
-    color: disabled ? '#4b6fa5' : '#fff', transition: 'all 0.15s', letterSpacing: '0.01em',
-  }),
-  btnDisconnect: (disabled: boolean): React.CSSProperties => ({
-    flex: 1, padding: '10px 20px', fontSize: '14px', fontWeight: 600,
-    borderRadius: '7px', border: '1px solid #374151',
-    cursor: disabled ? 'not-allowed' : 'pointer',
-    background: disabled ? '#111827' : '#1f2937',
-    color: disabled ? '#374151' : '#94a3b8', transition: 'all 0.15s', letterSpacing: '0.01em',
-  }),
-  indicator: (active: boolean): React.CSSProperties => ({
-    width: '7px', height: '7px', borderRadius: '50%',
-    background: active ? '#22c55e' : '#374151',
-    boxShadow: active ? '0 0 6px #22c55e88' : 'none',
-    display: 'inline-block', marginRight: '6px', flexShrink: 0,
-  }),
-} as const;
-
-// ============================================================
-// Component
-// ============================================================
+    display: 'block',
+    marginBottom: 6,
+    fontSize: 13,
+    color: '#bfd2ef',
+  },
+  input: {
+    width: '100%',
+    boxSizing: 'border-box',
+    background: '#08111f',
+    color: '#edf5ff',
+    border: '1px solid #22436e',
+    borderRadius: 10,
+    padding: '11px 12px',
+    fontSize: 14,
+    outline: 'none',
+  },
+  textarea: {
+    width: '100%',
+    boxSizing: 'border-box',
+    background: '#08111f',
+    color: '#edf5ff',
+    border: '1px solid #22436e',
+    borderRadius: 10,
+    padding: '11px 12px',
+    fontSize: 14,
+    outline: 'none',
+    minHeight: 88,
+    resize: 'vertical',
+    fontFamily: '"Cascadia Code", "Consolas", monospace',
+  },
+  row: {
+    marginBottom: 12,
+  },
+  small: {
+    color: '#7b95b9',
+    fontSize: 12,
+    marginTop: 5,
+  },
+  buttonRow: {
+    display: 'flex',
+    gap: 10,
+    flexWrap: 'wrap',
+  },
+  primary: {
+    background: 'linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%)',
+    color: '#fff',
+    border: 'none',
+    borderRadius: 10,
+    padding: '11px 14px',
+    fontWeight: 700,
+    cursor: 'pointer',
+  },
+  ghost: {
+    background: '#0d1728',
+    color: '#bfd2ef',
+    border: '1px solid #2a4976',
+    borderRadius: 10,
+    padding: '11px 14px',
+    fontWeight: 700,
+    cursor: 'pointer',
+  },
+  danger: {
+    background: '#2a1012',
+    color: '#ffbec6',
+    border: '1px solid #61202b',
+    borderRadius: 10,
+    padding: '11px 14px',
+    fontWeight: 700,
+    cursor: 'pointer',
+  },
+  status: {
+    borderRadius: 14,
+    border: '1px solid #22436e',
+    background: '#08111f',
+    padding: 16,
+    marginBottom: 18,
+  },
+  statusTitle: {
+    margin: 0,
+    color: '#7fa3d6',
+    fontSize: 12,
+    textTransform: 'uppercase',
+    letterSpacing: '0.08em',
+    fontWeight: 700,
+  },
+  statusBody: {
+    margin: '10px 0 0',
+    whiteSpace: 'pre-wrap',
+    lineHeight: 1.55,
+    fontFamily: '"Cascadia Code", "Consolas", monospace',
+    color: '#dbeafe',
+  },
+  statGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+    gap: 12,
+  },
+  statBox: {
+    border: '1px solid #22436e',
+    borderRadius: 14,
+    padding: 14,
+    background: '#09111d',
+  },
+  statLabel: {
+    margin: 0,
+    color: '#7b95b9',
+    fontSize: 12,
+  },
+  statValue: {
+    margin: '8px 0 0',
+    fontSize: 22,
+    fontWeight: 700,
+    color: '#f3f8ff',
+    fontFamily: '"Cascadia Code", "Consolas", monospace',
+  },
+  profileList: {
+    display: 'grid',
+    gap: 10,
+    marginTop: 12,
+  },
+  profileItem: {
+    border: '1px solid #22436e',
+    background: '#08111f',
+    borderRadius: 12,
+    padding: 12,
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 12,
+  },
+  profileName: {
+    margin: 0,
+    fontWeight: 700,
+  },
+  profileMeta: {
+    margin: '4px 0 0',
+    color: '#7b95b9',
+    fontSize: 12,
+  },
+};
 
 export default function App() {
-  const [phase, setPhase] = useState<AppPhase>('idle');
-  const [statusText, setStatusText] = useState<string>('Нет активного соединения');
-  const [errorText, setErrorText] = useState<string | null>(null);
+  const [phase, setPhase] = useState<Phase>('idle');
+  const [status, setStatus] = useState<string>('Соединение не активно');
+  const [error, setError] = useState<string | null>(null);
+  const [stats, setStats] = useState<TunnelStats>({ is_active: false, total_tx: 0, total_rx: 0 });
 
-  const [privateKey, setPrivateKey] = useState('');
-  const [publicKey, setPublicKey] = useState('');
-  const [endpoint, setEndpoint] = useState('');
-  const [address, setAddress] = useState('10.0.0.2/32');
-  const [allowedIps, setAllowedIps] = useState('10.0.0.0/24');
+  const [profiles, setProfiles] = useState<SavedProfile[]>([]);
+  const [activeProfileId, setActiveProfileId] = useState<string>('');
+  const [form, setForm] = useState<SavedProfile>(emptyProfile());
 
-  const [fieldErrors, setFieldErrors] = useState<Record<string, boolean>>({});
-
-  const isConnected = phase === 'connected';
-  const isBusy = phase === 'connecting' || phase === 'disconnecting';
-  
-  // ✅ Добавлено: Ref для безопасного чтения phase внутри setInterval
   const phaseRef = useRef(phase);
   useEffect(() => { phaseRef.current = phase; }, [phase]);
 
-  // ✅ КРИТИЧЕСКОЕ УЛУЧШЕНИЕ: Фоновый опрос статуса туннеля (Sync с Windows Driver)
   useEffect(() => {
-    let isMounted = true;
+    try {
+      const raw = localStorage.getItem(PROFILE_KEY);
+      if (raw) setProfiles(JSON.parse(raw));
+      const active = localStorage.getItem(ACTIVE_PROFILE_KEY);
+      if (active) setActiveProfileId(active);
+    } catch {
+      localStorage.removeItem(PROFILE_KEY);
+      localStorage.removeItem(ACTIVE_PROFILE_KEY);
+    }
+  }, []);
 
-    const pollStatus = async () => {
+  useEffect(() => {
+    localStorage.setItem(PROFILE_KEY, JSON.stringify(profiles));
+  }, [profiles]);
+
+  useEffect(() => {
+    if (activeProfileId) {
+      localStorage.setItem(ACTIVE_PROFILE_KEY, activeProfileId);
+    }
+  }, [activeProfileId]);
+
+  const activeProfile = useMemo(
+    () => profiles.find(p => p.id === activeProfileId) ?? null,
+    [profiles, activeProfileId],
+  );
+
+  useEffect(() => {
+    let mounted = true;
+
+    const poll = async () => {
       try {
-        const status = await invoke<TunnelStatus>('tunnel_get_status');
-        if (!isMounted) return;
+        const [statusRes, statsRes] = await Promise.all([
+          invoke<TunnelStatus>('tunnel_get_status'),
+          invoke<TunnelStats>('tunnel_get_stats'),
+        ]);
 
-        if (status.is_active) {
-          // Если мы не в процессе отключения, считаем что подключены
-          if (phaseRef.current !== 'disconnecting') {
-            setPhase('connected');
-            setStatusText(
-              `Соединение активно\n` +
-              `Адаптер: ${status.adapter_name ?? '—'}\n` +
-              `Индекс интерфейса: ${status.interface_index ?? '—'}\n` +
-              `MTU: ${status.mtu ?? '—'}`
-            );
-          }
-        } else {
-          // Если драйвер сообщает, что туннель мертв, синхронизируем UI
-          if (phaseRef.current === 'connected' || phaseRef.current === 'connecting') {
-            setPhase('idle');
-            setStatusText('Нет активного соединения (Туннель потерян)');
-          }
+        if (!mounted) return;
+
+        setStats(statsRes);
+        if (statusRes.is_active) {
+          setPhase(prev => (prev === 'disconnecting' ? prev : 'connected'));
+          setStatus(
+            `Активно\n` +
+            `Адаптер: ${statusRes.adapter_name ?? '—'}\n` +
+            `Индекс интерфейса: ${statusRes.interface_index ?? '—'}\n` +
+            `MTU: ${statusRes.mtu ?? '—'}`
+          );
+        } else if (phaseRef.current !== 'disconnecting') {
+          setPhase('idle');
+          setStatus('Соединение не активно');
         }
       } catch {
-        // Бэкенд еще грузится или команда не зарегистрирована — игнорируем
+        // backend может еще подниматься
       }
     };
 
-    pollStatus(); // Первый вызов сразу
-    const interval = setInterval(pollStatus, POLL_INTERVAL_MS);
-
+    poll();
+    const timer = window.setInterval(poll, POLL_MS);
     return () => {
-      isMounted = false;
-      clearInterval(interval);
+      mounted = false;
+      window.clearInterval(timer);
     };
   }, []);
 
-  // Загрузка конфига из LocalStorage
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return;
-      const saved: SavedConfig = JSON.parse(raw);
-      setPublicKey(saved.publicKey ?? '');
-      setEndpoint(saved.endpoint ?? '');
-      setAddress(saved.address ?? '10.0.0.2/32');
-      setAllowedIps(saved.allowedIps ?? '10.0.0.0/24');
-    } catch {
-      localStorage.removeItem(STORAGE_KEY);
-    }
-  }, []);
+  const currentProfileForValidation = () => {
+    return {
+      privateKey: form.privateKey.trim(),
+      publicKey: form.publicKey.trim(),
+      endpoint: form.endpoint.trim(),
+      address: form.address.trim(),
+      allowedIps: form.allowedIps.trim(),
+    };
+  };
 
-  const markFieldErrors = useCallback(
-    (priv: string, pub: string, endp: string, addr: string, allowed: string) => {
-      setFieldErrors({
-        privateKey: validateWgKey(priv, 'PrivateKey') !== null,
-        publicKey: validateWgKey(pub, 'PublicKey') !== null,
-        endpoint: validateEndpoint(endp) !== null,
-        address: validateCidr(addr, 'Address') !== null,
-        allowedIps: allowed.split(',').some(c => validateCidr(c.trim(), 'AllowedIPs') !== null),
-      });
-    },
-    [],
-  );
+  const validationError = () => {
+    const v = currentProfileForValidation();
+    return (
+      validateBase64Key(v.privateKey, 'PrivateKey') ??
+      validateBase64Key(v.publicKey, 'PublicKey') ??
+      validateEndpoint(v.endpoint) ??
+      validateCidrList(v.address, 'Address') ??
+      validateCidrList(v.allowedIps, 'AllowedIPs')
+    );
+  };
 
-  const connect = async () => {
-    if (isBusy || isConnected) return;
-
-    const validationError = validateAllFields(privateKey, publicKey, endpoint, address, allowedIps);
-    if (validationError) {
-      markFieldErrors(privateKey, publicKey, endpoint, address, allowedIps);
-      setErrorText(validationError);
+  const saveProfile = () => {
+    const err = validationError();
+    if (err) {
+      setError(err);
       return;
     }
 
-    setFieldErrors({});
-    setErrorText(null);
-    setPhase('connecting');
-    setStatusText('Инициализация адаптера...');
+    const next: SavedProfile = {
+      ...form,
+      privateKey: form.privateKey.trim(),
+      publicKey: form.publicKey.trim(),
+      endpoint: form.endpoint.trim(),
+      address: form.address.trim(),
+      allowedIps: form.allowedIps.trim(),
+      dnsServers: form.dnsServers.trim(),
+    };
 
-    const config = buildWireGuardConfig(privateKey, publicKey, endpoint, address, allowedIps);
-    const routesList = allowedIps.split(',').map(s => s.trim()).filter(Boolean);
+    setProfiles(prev => {
+      const existing = prev.findIndex(p => p.id === next.id);
+      if (existing >= 0) {
+        const copy = [...prev];
+        copy[existing] = next;
+        return copy;
+      }
+      return [next, ...prev];
+    });
+
+    setActiveProfileId(next.id);
+    setError(null);
+  };
+
+  const createNewProfile = () => {
+    const profile = emptyProfile();
+    setForm(profile);
+    setActiveProfileId(profile.id);
+    setError(null);
+  };
+
+  const loadProfile = (profile: SavedProfile) => {
+    setForm(profile);
+    setActiveProfileId(profile.id);
+    setError(null);
+  };
+
+  const deleteProfile = (id: string) => {
+    setProfiles(prev => prev.filter(p => p.id !== id));
+    if (activeProfileId === id) {
+      setActiveProfileId('');
+      setForm(emptyProfile());
+    }
+  };
+
+  const connect = async () => {
+    if (phase === 'connecting' || phase === 'disconnecting') return;
+    const err = validationError();
+    if (err) {
+      setError(err);
+      return;
+    }
+
+    setPhase('connecting');
+    setStatus('Инициализация адаптера...');
+    setError(null);
+
+    const payload = buildConfig(form);
+    const routes = form.allowedIps.split(',').map(s => s.trim()).filter(Boolean);
 
     try {
       const result = await invoke<TunnelStatus>('tunnel_apply_config', {
-        configContent: config,
-        adapterName: 'GameAccelerator',
-        expectedRoutes: routesList,
+        configContent: payload,
+        adapterName: form.name || 'GameAccelerator',
+        expectedRoutes: routes,
       });
 
-      const toSave: SavedConfig = { publicKey, endpoint, address, allowedIps };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
-
       setPhase('connected');
-      setStatusText(
-        `Соединение активно\n` +
-        `Адаптер: ${result.adapter_name ?? 'GameAccelerator'}\n` +
+      setStatus(
+        `Активно\n` +
+        `Адаптер: ${result.adapter_name ?? form.name ?? 'GameAccelerator'}\n` +
         `Индекс интерфейса: ${result.interface_index ?? '—'}\n` +
         `MTU: ${result.mtu ?? '—'}`
       );
-    } catch (err) {
+    } catch (e) {
       setPhase('idle');
-      // ✅ Улучшено: Красивый вывод ошибки от Rust бэкенда
-      const errMsg = typeof err === 'string' ? err : JSON.stringify(err);
-      setErrorText(`Ошибка подключения: ${errMsg}`);
-      setStatusText('Нет активного соединения');
+      setStatus('Соединение не активно');
+      setError(`Ошибка подключения: ${String(e)}`);
     }
   };
 
   const disconnect = async () => {
-    if (isBusy || !isConnected) return;
+    if (phase !== 'connected') return;
     setPhase('disconnecting');
-    setStatusText('Отключение...');
+    setStatus('Отключение...');
     try {
       await invoke('tunnel_disconnect');
       setPhase('idle');
-      setStatusText('Нет активного соединения');
-      setErrorText(null);
-    } catch (err) {
+      setStatus('Соединение не активно');
+    } catch (e) {
       setPhase('idle');
-      setErrorText(`Ошибка при отключении: ${String(err)}`);
-      setStatusText('Нет активного соединения');
+      setError(`Ошибка отключения: ${String(e)}`);
     }
   };
 
+  const bytesToMiB = (value: number) => (value / 1024 / 1024).toFixed(2);
+
   return (
-    <div style={S.root}>
-      <div style={S.header}>
-        <h1 style={S.h1}>
-          <span style={S.indicator(isConnected)} />
-          Game Accelerator
-        </h1>
-        <p style={S.subtitle}>
-          {isConnected ? 'WireGuard туннель активен' : 'WireGuard клиент · Windows'}
-        </p>
-      </div>
-
-      <div style={S.statusBox(phase)}>{statusText}</div>
-
-      {errorText && <div style={S.errorBox}>{errorText}</div>}
-
-      <div style={S.card}>
-        <p style={S.cardTitle}>Конфигурация</p>
-
-        <div style={S.field}>
-          <label style={S.label}>Приватный ключ (клиент)</label>
-          <input
-            type="password"
-            value={privateKey}
-            onChange={e => {
-              setPrivateKey(e.target.value);
-              setFieldErrors(prev => ({ ...prev, privateKey: false }));
-              setErrorText(null);
-            }}
-            placeholder="44 символа Base64"
-            style={S.input(isConnected || isBusy, fieldErrors.privateKey ?? false)}
-            disabled={isConnected || isBusy}
-            autoComplete="off"
-            spellCheck={false}
-          />
+    <div style={styles.page}>
+      <div style={styles.shell}>
+        <div style={styles.topbar}>
+          <div>
+            <h1 style={styles.title}>Game Accelerator</h1>
+            <p style={styles.subtitle}>Черно-синий профильный клиент для WireGuard-NT</p>
+          </div>
+          <div style={styles.buttonRow}>
+            <button style={styles.ghost} onClick={createNewProfile}>Новый VPS</button>
+            <button style={styles.primary} onClick={saveProfile}>Сохранить профиль</button>
+            <button style={styles.primary} onClick={connect} disabled={phase !== 'idle'}>Подключить</button>
+            <button style={styles.ghost} onClick={disconnect} disabled={phase !== 'connected'}>Отключить</button>
+          </div>
         </div>
 
-        <div style={S.field}>
-          <label style={S.label}>
-            Адрес интерфейса
-            <span style={S.labelHint}>(IP туннеля, пример: 10.0.0.2/32)</span>
-          </label>
-          <input
-            type="text"
-            value={address}
-            onChange={e => {
-              setAddress(e.target.value);
-              setFieldErrors(prev => ({ ...prev, address: false }));
-              setErrorText(null);
-            }}
-            placeholder="10.0.0.2/32"
-            style={S.input(isConnected || isBusy, fieldErrors.address ?? false)}
-            disabled={isConnected || isBusy}
-            spellCheck={false}
-          />
+        <div style={styles.status}>
+          <p style={styles.statusTitle}>Статус</p>
+          <p style={styles.statusBody}>{status}</p>
         </div>
 
-        <div style={S.field}>
-          <label style={S.label}>Публичный ключ сервера</label>
-          <input
-            type="text"
-            value={publicKey}
-            onChange={e => {
-              setPublicKey(e.target.value);
-              setFieldErrors(prev => ({ ...prev, publicKey: false }));
-              setErrorText(null);
-            }}
-            placeholder="44 символа Base64"
-            style={S.input(isConnected || isBusy, fieldErrors.publicKey ?? false)}
-            disabled={isConnected || isBusy}
-            spellCheck={false}
-          />
+        {error && (
+          <div style={{ ...styles.status, borderColor: '#5a2230', background: '#190b12' }}>
+            <p style={{ ...styles.statusTitle, color: '#ff8ea0' }}>Ошибка</p>
+            <p style={{ ...styles.statusBody, color: '#ffd2da' }}>{error}</p>
+          </div>
+        )}
+
+        <div style={styles.grid}>
+          <div style={styles.card}>
+            <p style={styles.cardTitle}>Профиль VPS</p>
+
+            <div style={styles.row}>
+              <label style={styles.label}>Название профиля</label>
+              <input
+                style={styles.input}
+                value={form.name}
+                onChange={e => setForm(prev => ({ ...prev, name: e.target.value }))}
+                placeholder="Warsaw-01"
+              />
+            </div>
+
+            <div style={styles.row}>
+              <label style={styles.label}>Приватный ключ</label>
+              <input
+                style={styles.input}
+                type="password"
+                value={form.privateKey}
+                onChange={e => setForm(prev => ({ ...prev, privateKey: e.target.value }))}
+                placeholder="44 символа Base64"
+              />
+            </div>
+
+            <div style={styles.row}>
+              <label style={styles.label}>Публичный ключ сервера</label>
+              <input
+                style={styles.input}
+                value={form.publicKey}
+                onChange={e => setForm(prev => ({ ...prev, publicKey: e.target.value }))}
+                placeholder="44 символа Base64"
+              />
+            </div>
+
+            <div style={styles.row}>
+              <label style={styles.label}>Endpoint</label>
+              <input
+                style={styles.input}
+                value={form.endpoint}
+                onChange={e => setForm(prev => ({ ...prev, endpoint: e.target.value }))}
+                placeholder="1.2.3.4:51820"
+              />
+            </div>
+
+            <div style={styles.row}>
+              <label style={styles.label}>Адрес интерфейса</label>
+              <input
+                style={styles.input}
+                value={form.address}
+                onChange={e => setForm(prev => ({ ...prev, address: e.target.value }))}
+                placeholder="10.0.0.2/32"
+              />
+            </div>
+
+            <div style={styles.row}>
+              <label style={styles.label}>AllowedIPs</label>
+              <textarea
+                style={styles.textarea}
+                value={form.allowedIps}
+                onChange={e => setForm(prev => ({ ...prev, allowedIps: e.target.value }))}
+                placeholder="0.0.0.0/0, ::/0"
+              />
+              <div style={styles.small}>Через запятую. Максимум {MAX_ROUTES} маршрутов.</div>
+            </div>
+
+            <div style={styles.row}>
+              <label style={styles.label}>DNS</label>
+              <input
+                style={styles.input}
+                value={form.dnsServers}
+                onChange={e => setForm(prev => ({ ...prev, dnsServers: e.target.value }))}
+                placeholder="1.1.1.1, 8.8.8.8"
+              />
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gap: 18 }}>
+            <div style={styles.card}>
+              <p style={styles.cardTitle}>Трафик</p>
+              <div style={styles.statGrid}>
+                <div style={styles.statBox}>
+                  <p style={styles.statLabel}>TX</p>
+                  <p style={styles.statValue}>{bytesToMiB(stats.total_tx)} MB</p>
+                </div>
+                <div style={styles.statBox}>
+                  <p style={styles.statLabel}>RX</p>
+                  <p style={styles.statValue}>{bytesToMiB(stats.total_rx)} MB</p>
+                </div>
+                <div style={styles.statBox}>
+                  <p style={styles.statLabel}>Состояние</p>
+                  <p style={styles.statValue}>{stats.is_active ? 'UP' : 'DOWN'}</p>
+                </div>
+              </div>
+            </div>
+
+            <div style={styles.card}>
+              <p style={styles.cardTitle}>Сохранённые VPS</p>
+
+              {profiles.length === 0 ? (
+                <div style={styles.small}>Профилей пока нет. Создайте новый VPS и сохраните его.</div>
+              ) : (
+                <div style={styles.profileList}>
+                  {profiles.map(profile => (
+                    <div key={profile.id} style={styles.profileItem}>
+                      <div>
+                        <p style={styles.profileName}>{profile.name}</p>
+                        <p style={styles.profileMeta}>{profile.endpoint} · {profile.address}</p>
+                      </div>
+                      <div style={styles.buttonRow}>
+                        <button style={styles.ghost} onClick={() => loadProfile(profile)}>Открыть</button>
+                        <button style={styles.danger} onClick={() => deleteProfile(profile.id)}>Удалить</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {activeProfile && (
+                <div style={{ ...styles.small, marginTop: 12 }}>
+                  Активный профиль: <strong>{activeProfile.name}</strong>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
-
-        <div style={S.field}>
-          <label style={S.label}>
-            Endpoint сервера
-            <span style={S.labelHint}>(IP:порт или [IPv6]:порт)</span>
-          </label>
-          <input
-            type="text"
-            value={endpoint}
-            onChange={e => {
-              setEndpoint(e.target.value);
-              setFieldErrors(prev => ({ ...prev, endpoint: false }));
-              setErrorText(null);
-            }}
-            placeholder="1.2.3.4:51820"
-            style={S.input(isConnected || isBusy, fieldErrors.endpoint ?? false)}
-            disabled={isConnected || isBusy}
-            spellCheck={false}
-          />
-        </div>
-
-        <div style={{ ...S.field, marginBottom: 0 }}>
-          <label style={S.label}>
-            Разрешённые IP (AllowedIPs)
-            <span style={S.labelHint}>(через запятую, макс. {MAX_ROUTES})</span>
-          </label>
-          <input
-            type="text"
-            value={allowedIps}
-            onChange={e => {
-              setAllowedIps(e.target.value);
-              setFieldErrors(prev => ({ ...prev, allowedIps: false }));
-              setErrorText(null);
-            }}
-            placeholder="10.0.0.0/24, 192.168.1.0/24"
-            style={S.input(isConnected || isBusy, fieldErrors.allowedIps ?? false)}
-            disabled={isConnected || isBusy}
-            spellCheck={false}
-          />
-        </div>
-      </div>
-
-      <div style={S.buttonRow}>
-        <button
-          style={S.btnConnect(isBusy || isConnected)}
-          onClick={connect}
-          disabled={isBusy || isConnected}
-        >
-          {phase === 'connecting' ? 'Подключение...' : 'Подключить'}
-        </button>
-
-        <button
-          style={S.btnDisconnect(isBusy || !isConnected)}
-          onClick={disconnect}
-          disabled={isBusy || !isConnected}
-        >
-          {phase === 'disconnecting' ? 'Отключение...' : 'Отключить'}
-        </button>
       </div>
     </div>
   );

@@ -7,6 +7,7 @@ pub fn parse_wireguard_config(text: &str) -> Result<ParsedConfig, String> {
     let mut listen_port: Option<u16> = None;
     let mut interface_address: Option<std::net::IpAddr> = None;
     let mut interface_prefix: Option<u8> = None;
+    let mut dns_servers: Vec<String> = Vec::new();
     let mut peers: Vec<ParsedPeer> = Vec::new();
     
     let mut current_peer: Option<ParsedPeerBuilder> = None;
@@ -51,6 +52,14 @@ pub fn parse_wireguard_config(text: &str) -> Result<ParsedConfig, String> {
                         format!("Line {}: Invalid Address prefix '{}': {}", line_num + 1, prefix_str, e)
                     })?);
                 }
+                "DNS" => {
+                    for dns in value.split(',') {
+                        let dns = dns.trim();
+                        if !dns.is_empty() {
+                            dns_servers.push(dns.to_string());
+                        }
+                    }
+                }
                 _ => {}
             }
         } else if in_peer {
@@ -74,7 +83,7 @@ pub fn parse_wireguard_config(text: &str) -> Result<ParsedConfig, String> {
     if let Some(peer_builder) = current_peer.take() { peers.push(peer_builder.build(text.lines().count())?); }
     let private_key = private_key.ok_or("Missing [Interface] PrivateKey")?;
 
-    Ok(ParsedConfig { private_key, listen_port, interface_address, interface_prefix, peers })
+    Ok(ParsedConfig { private_key, listen_port, interface_address, interface_prefix, dns_servers, peers })
 }
 
 fn decode_wg_key(s: &str, field_name: &str, line_num: usize) -> Result<[u8; WIREGUARD_KEY_LENGTH], String> {

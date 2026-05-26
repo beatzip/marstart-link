@@ -64,7 +64,8 @@ fn run_app() -> Result<(), Box<dyn std::error::Error>> {
         .invoke_handler(tauri::generate_handler![
             wireguard::tunnel_apply_config,
             wireguard::tunnel_disconnect,
-            wireguard::tunnel_get_stats, // ✅ 2. 必须注册你新加的统计命令
+            wireguard::tunnel_get_status,
+            wireguard::tunnel_get_stats,
         ])
         // ✅ 修复：generate_context!() 返回 Context 而不是 Result，不能加 ?
         .run(tauri::generate_context!())

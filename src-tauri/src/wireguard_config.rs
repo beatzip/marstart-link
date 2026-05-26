@@ -33,6 +33,7 @@ pub struct ParsedConfig {
     pub listen_port: Option<u16>,
     pub interface_address: Option<std::net::IpAddr>,
     pub interface_prefix: Option<u8>,
+    pub dns_servers: Vec<String>,
     pub peers: Vec<ParsedPeer>,
 }
 
