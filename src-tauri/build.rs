@@ -11,8 +11,8 @@ fn main() {
 
     let (wg_dll, wintun_dll) = match target_arch.as_str() {
         "x86_64" => (
-            "sdk/wireguard-nt/bin/amd64/wireguard.dll",
-            "sdk/wintun/bin/amd64/wintun.dll",
+            "sdk/wireguard-nt/amd64/wireguard.dll",
+            "sdk/wintun/amd64/wintun.dll",
         ),
         "aarch64" => (
             "sdk/wireguard-nt/arm64/wireguard.dll",
