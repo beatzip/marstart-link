@@ -27,11 +27,17 @@ use windows::Win32::NetworkManagement::IpHelper::{
 use windows::Win32::NetworkManagement::Ndis::{IfOperStatusUp, NET_LUID_LH};
 use windows::Win32::Networking::WinSock::AF_INET;
 
+// ============================================================================
+// Newtype для Send + Sync (сырой указатель на handle адаптера)
+// ============================================================================
 #[derive(Clone, Copy)]
 pub struct WireGuardAdapterHandle(*mut c_void);
 unsafe impl Send for WireGuardAdapterHandle {}
 unsafe impl Sync for WireGuardAdapterHandle {}
 
+// ============================================================================
+// WireGuard Adapter State (из wireguard.h)
+// ============================================================================
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WireGuardAdapterState {
@@ -39,6 +45,9 @@ pub enum WireGuardAdapterState {
     Up = 1,
 }
 
+// ============================================================================
+// FFI Type Aliases (точные сигнатуры из wireguard.h)
+// ============================================================================
 type WireGuardCreateAdapterFn = unsafe extern "system" fn(
     name: *const u16,
     tunnel_type: *const u16,
@@ -69,6 +78,9 @@ type WireGuardGetConfigurationFn = unsafe extern "system" fn(
     size: *mut u32,
 ) -> i32;
 
+// ============================================================================
+// Runtime cleanup state
+// ============================================================================
 #[derive(Debug, Clone)]
 struct AssignedAddress {
     ip: IpAddr,
@@ -83,6 +95,9 @@ struct TunnelRuntime {
     created_routes: Vec<windows::Win32::NetworkManagement::IpHelper::MIB_IPFORWARD_ROW2>,
 }
 
+// ============================================================================
+// WireGuard DLL Wrapper
+// ============================================================================
 pub struct WireGuardDll {
     _lib: Library,
     create_adapter_fn: WireGuardCreateAdapterFn,
@@ -223,6 +238,9 @@ impl WireGuardDll {
     }
 }
 
+// ============================================================================
+// Tunnel State
+// ============================================================================
 pub struct TunnelState {
     pub dll: Arc<WireGuardDll>,
     pub adapter: Arc<Mutex<Option<WireGuardAdapterHandle>>>,
@@ -249,11 +267,17 @@ impl TunnelState {
 
     pub fn clone_for_panic_hook(
         &self,
-    ) -> (Arc<WireGuardDll>, Arc<Mutex<Option<WireGuardAdapterHandle>>>) {
+    ) -> (
+        Arc<WireGuardDll>,
+        Arc<Mutex<Option<WireGuardAdapterHandle>>>,
+    ) {
         (self.dll.clone(), self.adapter.clone())
     }
 }
 
+// ============================================================================
+// Tauri IPC Types
+// ============================================================================
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct TunnelStatus {
     pub is_active: bool,
@@ -277,6 +301,9 @@ pub async fn tunnel_get_status(state: State<'_, TunnelState>) -> Result<TunnelSt
     Ok(status)
 }
 
+// ============================================================================
+// Tauri Commands
+// ============================================================================
 #[tauri::command]
 pub async fn tunnel_apply_config(
     state: State<'_, TunnelState>,
@@ -457,6 +484,9 @@ pub async fn tunnel_get_stats(state: State<'_, TunnelState>) -> Result<TunnelSta
     })
 }
 
+// ============================================================================
+// Panic Hook & Helpers
+// ============================================================================
 pub fn setup_panic_hook(
     dll: Arc<WireGuardDll>,
     adapter_state: Arc<Mutex<Option<WireGuardAdapterHandle>>>,
@@ -527,7 +557,10 @@ fn set_interface_mtu(interface_index: u32, mtu: u32) -> Result<(), String> {
     Ok(())
 }
 
-fn wait_for_handshake(dll: &WireGuardDll, handle: WireGuardAdapterHandle) -> anyhow::Result<()> {
+fn wait_for_handshake(
+    dll: &WireGuardDll,
+    handle: WireGuardAdapterHandle,
+) -> anyhow::Result<()> {
     for _ in 0..20 {
         let blob = dll.get_configuration(handle).map_err(anyhow::Error::msg)?;
         let peers = read_peer_stats(&blob);
@@ -545,7 +578,11 @@ fn wait_for_handshake(dll: &WireGuardDll, handle: WireGuardAdapterHandle) -> any
     anyhow::bail!("No WireGuard handshake received")
 }
 
-fn assign_interface_address(interface_index: u32, ip: IpAddr, prefix: u8) -> Result<(), String> {
+fn assign_interface_address(
+    interface_index: u32,
+    ip: IpAddr,
+    prefix: u8,
+) -> Result<(), String> {
     let sockaddr = socket_addr_to_sockaddr_inet(&SocketAddr::new(ip, 0));
 
     unsafe {
@@ -562,6 +599,7 @@ fn assign_interface_address(interface_index: u32, ip: IpAddr, prefix: u8) -> Res
                 Ok(())
             }
             Err(create_err) => {
+                // Если адрес уже существует, пробуем обновить его.
                 let mut existing: MIB_UNICASTIPADDRESS_ROW = std::mem::zeroed();
                 InitializeUnicastIpAddressEntry(&mut existing);
                 existing.InterfaceIndex = interface_index;
@@ -597,13 +635,7 @@ fn remove_interface_address(interface_index: u32, ip: IpAddr, prefix: u8) {
 
 fn run_powershell(script: &str) -> Result<(), String> {
     let output = Command::new("powershell.exe")
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
-        ])
+        .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command"])
         .arg(script)
         .output()
         .map_err(|e| format!("Failed to launch PowerShell: {e}"))?;
@@ -615,7 +647,9 @@ fn run_powershell(script: &str) -> Result<(), String> {
         let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
         Err(format!(
             "PowerShell command failed (code {:?}): {} {}",
-            output.status.code(), stderr, stdout
+            output.status.code(),
+            stderr,
+            stdout
         ))
     }
 }
@@ -627,7 +661,7 @@ fn apply_dns_servers(interface_index: u32, dns_servers: &[String]) -> Result<(),
 
     let quoted = dns_servers
         .iter()
-        .map(|s| format!("'{}'", s.replace('\'', "''")))
+        .map(|s| format!("'{}'", s.replace('"', "''")))
         .collect::<Vec<_>>()
         .join(",");
 
@@ -683,9 +717,7 @@ fn force_route_metrics(
     Ok(())
 }
 
-fn delete_created_routes(
-    created_routes: &[windows::Win32::NetworkManagement::IpHelper::MIB_IPFORWARD_ROW2],
-) {
+fn delete_created_routes(created_routes: &[windows::Win32::NetworkManagement::IpHelper::MIB_IPFORWARD_ROW2]) {
     for route in created_routes {
         unsafe {
             let _ = DeleteIpForwardEntry2(route);
@@ -708,7 +740,7 @@ fn cleanup_runtime(dll: &WireGuardDll, runtime: &mut TunnelRuntime) {
         runtime.created_routes.clear();
     }
 
-    let _ = dll;
+    let _ = dll; // keep signature future-proof; dll is used indirectly in higher-level cleanup paths.
 }
 
 fn cleanup_all_network_state(state: &State<'_, TunnelState>) {
