@@ -1,7 +1,7 @@
 use crate::wireguard_config::*;
 use std::mem::size_of;
 use std::net::IpAddr;
-use windows::Win32::Networking::WinSock::{AF_INET, AF_INET6, IN_ADDR, IN_ADDR_0, IN6_ADDR};
+use windows::Win32::Networking::WinSock::{AF_INET, AF_INET6, IN6_ADDR, IN_ADDR, IN_ADDR_0};
 
 /// Сериализует ParsedConfig в бинарный blob для WireGuardSetConfiguration.
 /// Layout: WireguardInterface | WireguardPeer₁ | AllowedIp₁₁ … | WireguardPeer₂ | …
@@ -29,10 +29,10 @@ pub fn serialize_config(config: &ParsedConfig) -> Result<Vec<u8>, String> {
     }
 
     let iface = WireguardInterface {
-        flags:       iface_flags,
+        flags: iface_flags,
         listen_port: config.listen_port.unwrap_or(0),
         private_key: config.private_key,
-        public_key:  [0u8; WIREGUARD_KEY_LENGTH], // драйвер вычислит сам
+        public_key: [0u8; WIREGUARD_KEY_LENGTH], // драйвер вычислит сам
         peers_count: config.peers.len() as u32,
     };
     write_struct(&iface, &mut blob, &mut off);
@@ -40,25 +40,32 @@ pub fn serialize_config(config: &ParsedConfig) -> Result<Vec<u8>, String> {
     // ── Peers ──────────────────────────────────────────────────────────────
     for peer in &config.peers {
         let mut pflags = WIREGUARD_PEER_HAS_PUBLIC_KEY | WIREGUARD_PEER_REPLACE_ALLOWED_IPS;
-        if peer.preshared_key.is_some()       { pflags |= WIREGUARD_PEER_HAS_PRESHARED_KEY; }
-        if peer.persistent_keepalive.is_some() { pflags |= WIREGUARD_PEER_HAS_PERSISTENT_KEEPALIVE; }
-        if peer.endpoint.is_some()             { pflags |= WIREGUARD_PEER_HAS_ENDPOINT; }
+        if peer.preshared_key.is_some() {
+            pflags |= WIREGUARD_PEER_HAS_PRESHARED_KEY;
+        }
+        if peer.persistent_keepalive.is_some() {
+            pflags |= WIREGUARD_PEER_HAS_PERSISTENT_KEEPALIVE;
+        }
+        if peer.endpoint.is_some() {
+            pflags |= WIREGUARD_PEER_HAS_ENDPOINT;
+        }
 
-        let endpoint = peer.endpoint
+        let endpoint = peer
+            .endpoint
             .map(|e| socket_addr_to_sockaddr_inet(&e))
             .unwrap_or_else(|| unsafe { std::mem::zeroed() });
 
         let wg_peer = WireguardPeer {
-            flags:                pflags,
-            reserved:             0,
-            public_key:           peer.public_key,
-            preshared_key:        peer.preshared_key.unwrap_or([0u8; WIREGUARD_KEY_LENGTH]),
+            flags: pflags,
+            reserved: 0,
+            public_key: peer.public_key,
+            preshared_key: peer.preshared_key.unwrap_or([0u8; WIREGUARD_KEY_LENGTH]),
             persistent_keepalive: peer.persistent_keepalive.unwrap_or(0),
             endpoint,
-            tx_bytes:             0,
-            rx_bytes:             0,
-            last_handshake:       0,
-            allowed_ips_count:    peer.allowed_ips.len() as u32,
+            tx_bytes: 0,
+            rx_bytes: 0,
+            last_handshake: 0,
+            allowed_ips_count: peer.allowed_ips.len() as u32,
         };
         write_struct(&wg_peer, &mut blob, &mut off);
 
@@ -107,9 +114,8 @@ pub fn serialize_config(config: &ParsedConfig) -> Result<Vec<u8>, String> {
 
 /// Безопасная копия #[repr(C)] структуры в буфер
 fn write_struct<T: Copy>(val: &T, buf: &mut Vec<u8>, off: &mut usize) {
-    let bytes: &[u8] = unsafe {
-        std::slice::from_raw_parts((val as *const T) as *const u8, size_of::<T>())
-    };
+    let bytes: &[u8] =
+        unsafe { std::slice::from_raw_parts((val as *const T) as *const u8, size_of::<T>()) };
     buf[*off..*off + size_of::<T>()].copy_from_slice(bytes);
     *off += size_of::<T>();
 }
@@ -118,23 +124,25 @@ fn write_struct<T: Copy>(val: &T, buf: &mut Vec<u8>, off: &mut usize) {
 /// Возвращает Vec<(tx_bytes, rx_bytes, last_handshake_unix_secs)>
 pub fn read_peer_stats(blob: &[u8]) -> Vec<(u64, u64, u64)> {
     let iface_size = size_of::<WireguardInterface>();
-    let peer_size  = size_of::<WireguardPeer>();
-    let aip_size   = size_of::<WireguardAllowedIp>();
+    let peer_size = size_of::<WireguardPeer>();
+    let aip_size = size_of::<WireguardAllowedIp>();
 
-    if blob.len() < iface_size { return vec![]; }
+    if blob.len() < iface_size {
+        return vec![];
+    }
 
-    let iface: WireguardInterface = unsafe {
-        std::ptr::read_unaligned(blob.as_ptr() as *const WireguardInterface)
-    };
+    let iface: WireguardInterface =
+        unsafe { std::ptr::read_unaligned(blob.as_ptr() as *const WireguardInterface) };
 
     let mut off = iface_size;
     let mut result = Vec::new();
 
     for _ in 0..iface.peers_count {
-        if off + peer_size > blob.len() { break; }
-        let peer: WireguardPeer = unsafe {
-            std::ptr::read_unaligned(blob[off..].as_ptr() as *const WireguardPeer)
-        };
+        if off + peer_size > blob.len() {
+            break;
+        }
+        let peer: WireguardPeer =
+            unsafe { std::ptr::read_unaligned(blob[off..].as_ptr() as *const WireguardPeer) };
         off += peer_size;
         off += peer.allowed_ips_count as usize * aip_size;
 
@@ -150,7 +158,9 @@ pub fn read_peer_stats(blob: &[u8]) -> Vec<(u64, u64, u64)> {
 
 /// Windows FILETIME (100ns intervals since 1601-01-01) → Unix seconds
 pub fn filetime_to_unix(ft: u64) -> u64 {
-    if ft == 0 { return 0; }
+    if ft == 0 {
+        return 0;
+    }
     // 100ns intervals from 1601-01-01 to 1970-01-01 = 116 444 736 000 000 000
     const EPOCH_DIFF: u64 = 116_444_736_000_000_000;
     ft.saturating_sub(EPOCH_DIFF) / 10_000_000
@@ -164,17 +174,25 @@ pub fn hexdump(data: &[u8], max_bytes: usize) -> String {
         s.push_str(&format!("{:08x}  ", i * 16));
         for (j, byte) in chunk.iter().enumerate() {
             s.push_str(&format!("{:02x} ", byte));
-            if j == 7 { s.push(' '); }
+            if j == 7 {
+                s.push(' ');
+            }
         }
         if chunk.len() < 16 {
             for j in chunk.len()..16 {
                 s.push_str("   ");
-                if j == 7 { s.push(' '); }
+                if j == 7 {
+                    s.push(' ');
+                }
             }
         }
         s.push_str(" |");
         for byte in chunk {
-            s.push(if byte.is_ascii_graphic() || *byte == b' ' { *byte as char } else { '.' });
+            s.push(if byte.is_ascii_graphic() || *byte == b' ' {
+                *byte as char
+            } else {
+                '.'
+            });
         }
         s.push_str("|\n");
     }
