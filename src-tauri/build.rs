@@ -2,7 +2,7 @@
 
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
@@ -70,8 +70,8 @@ fn main() {
 }
 
 fn copy_dll_if_exists(
-    manifest_dir: &PathBuf,
-    resources_dir: &PathBuf,
+    manifest_dir: &Path,
+    resources_dir: &Path,
     dll_name: &str,
     candidates: &[&str],
 ) {
