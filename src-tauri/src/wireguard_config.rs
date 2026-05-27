@@ -109,31 +109,30 @@ pub struct WireguardAllowedIp {
 // ============================================================================
 pub fn socket_addr_to_sockaddr_inet(addr: &SocketAddr) -> SOCKADDR_INET {
     let mut sockaddr: SOCKADDR_INET = unsafe { std::mem::zeroed() };
-    unsafe {
-        match addr {
-            SocketAddr::V4(v4) => {
-                sockaddr.si_family = AF_INET;
-                sockaddr.Ipv4.sin_family = AF_INET;
-                sockaddr.Ipv4.sin_port = v4.port().to_be(); // port: always big-endian
-                sockaddr.Ipv4.sin_addr = IN_ADDR {
-                    // ✅ from_ne_bytes: preserves network byte order in memory
-                    S_un: IN_ADDR_0 {
-                        S_addr: u32::from_ne_bytes(v4.ip().octets()),
-                    },
-                };
-            }
-            SocketAddr::V6(v6) => {
-                sockaddr.si_family = AF_INET6;
-                sockaddr.Ipv6.sin6_family = AF_INET6;
-                sockaddr.Ipv6.sin6_port = v6.port().to_be();
-                sockaddr.Ipv6.sin6_flowinfo = v6.flowinfo();
-                sockaddr.Ipv6.sin6_addr = IN6_ADDR {
-                    u: windows::Win32::Networking::WinSock::IN6_ADDR_0 {
-                        Byte: v6.ip().octets(),
-                    },
-                };
-                sockaddr.Ipv6.Anonymous.sin6_scope_id = v6.scope_id();
-            }
+    // ✅ FIX: убран лишний unsafe блок — присваивания полей структур безопасны
+    match addr {
+        SocketAddr::V4(v4) => {
+            sockaddr.si_family = AF_INET;
+            sockaddr.Ipv4.sin_family = AF_INET;
+            sockaddr.Ipv4.sin_port = v4.port().to_be(); // port: always big-endian
+            sockaddr.Ipv4.sin_addr = IN_ADDR {
+                // ✅ from_ne_bytes: preserves network byte order in memory
+                S_un: IN_ADDR_0 {
+                    S_addr: u32::from_ne_bytes(v4.ip().octets()),
+                },
+            };
+        }
+        SocketAddr::V6(v6) => {
+            sockaddr.si_family = AF_INET6;
+            sockaddr.Ipv6.sin6_family = AF_INET6;
+            sockaddr.Ipv6.sin6_port = v6.port().to_be();
+            sockaddr.Ipv6.sin6_flowinfo = v6.flowinfo();
+            sockaddr.Ipv6.sin6_addr = IN6_ADDR {
+                u: windows::Win32::Networking::WinSock::IN6_ADDR_0 {
+                    Byte: v6.ip().octets(),
+                },
+            };
+            sockaddr.Ipv6.Anonymous.sin6_scope_id = v6.scope_id();
         }
     }
     sockaddr

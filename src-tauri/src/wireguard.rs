@@ -2,7 +2,6 @@ use crate::utils::{create_forward_row, parse_cidr};
 use crate::wireguard_config::socket_addr_to_sockaddr_inet;
 use crate::wireguard_parser;
 use crate::wireguard_serializer::{hexdump, read_peer_stats, serialize_config};
-
 use std::ffi::c_void;
 use std::net::{IpAddr, SocketAddr};
 use std::os::windows::ffi::OsStrExt;
@@ -10,7 +9,6 @@ use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-
 use libloading::os::windows::{Library, LOAD_WITH_ALTERED_SEARCH_PATH};
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -343,7 +341,6 @@ pub async fn tunnel_get_stats(state: State<'_, TunnelState>) -> Result<TunnelSta
             None => return Ok(TunnelStats::default()),
         }
     };
-
     let buf = state.dll.get_configuration(handle)?;
     let peers = read_peer_stats(&buf);
 
@@ -382,7 +379,6 @@ pub async fn tunnel_get_diagnostics(
         .lock()
         .unwrap_or_else(|p| p.into_inner())
         .clone();
-
     let (runtime_endpoint, runtime_interface_index) = {
         let guard = state.runtime.lock().unwrap_or_else(|p| p.into_inner());
         if let Some(rt) = guard.as_ref() {
@@ -517,7 +513,7 @@ pub async fn tunnel_apply_config(
         (handle, if_idx)
     };
 
-    // ── Helper: emergency teardown ──────────────────────────────────────────
+    // ── Helper: emergency teardown ─────────────────────────────────────────
     let do_emergency_teardown = |msg: String| -> String {
         if let Some(mut rt) = state
             .runtime
@@ -686,7 +682,7 @@ pub async fn tunnel_apply_config(
         match wait_for_handshake(
             dll,
             adapter,
-            session_guard,
+            session_guard.clone(),   // ✅ FIX: клонируем Arc, чтобы session_guard остался доступен ниже
             session_id,
             handle,
             Duration::from_secs(30),
@@ -767,7 +763,6 @@ pub fn setup_panic_hook(
 // ============================================================================
 // Helper functions
 // ============================================================================
-
 fn luid_to_index(luid: NET_LUID_LH) -> Result<u32, String> {
     let mut idx = 0u32;
     unsafe { ConvertInterfaceLuidToIndex(&luid, &mut idx) }
@@ -846,7 +841,6 @@ fn best_route_interface_for(endpoint: SocketAddr) -> Result<u32, String> {
         IpAddr::V4(v4) => v4,
         IpAddr::V6(_) => return Err("route verification for IPv6 endpoint not implemented".into()),
     };
-
     unsafe {
         let mut dst: SOCKADDR_INET = std::mem::zeroed();
         dst.si_family = AF_INET;
@@ -870,6 +864,7 @@ fn best_route_interface_for(endpoint: SocketAddr) -> Result<u32, String> {
         Ok(best_route.InterfaceIndex)
     }
 }
+
 fn set_interface_mtu(if_idx: u32, mtu: u32) -> Result<(), String> {
     unsafe {
         let mut row: MIB_IPINTERFACE_ROW = std::mem::zeroed();
@@ -933,7 +928,6 @@ fn add_full_tunnel_bypass_route(endpoint: SocketAddr) -> Result<MIB_IPFORWARD_RO
         IpAddr::V4(v4) => v4,
         IpAddr::V6(_) => return Err("IPv6 endpoint bypass not implemented".into()),
     };
-
     unsafe {
         let mut dst: SOCKADDR_INET = std::mem::zeroed();
         dst.si_family = AF_INET;
@@ -992,7 +986,6 @@ fn inject_routes(
     if cidrs.len() > 50 {
         return Err("Too many routes (max 50)".into());
     }
-
     for cidr in cidrs {
         let Ok((ip, prefix)) = parse_cidr(cidr) else {
             continue;
@@ -1061,7 +1054,7 @@ fn apply_dns_servers(if_idx: u32, servers: &[String]) -> Result<(), String> {
         .iter()
         .map(|s| format!("'{}'", s.replace('\'', "''")))
         .collect::<Vec<_>>()
-        .join(",");
+        .join(", ");
     run_powershell(&format!(
         "Set-DnsClientServerAddress -InterfaceIndex {if_idx} -ServerAddresses @({quoted})"
     ))
