@@ -1,12 +1,12 @@
 use crate::utils::{create_forward_row, parse_cidr};
 use crate::wireguard_config::{
-    socket_addr_to_sockaddr_inet, WireguardAllowedIp, WireguardInterface, WireguardPeer,
+    socket_addr_to_sockaddr_inet,
 };
 use crate::wireguard_parser;
-use crate::wireguard_serializer::{filetime_to_unix, hexdump, read_peer_stats, serialize_config};
+use crate::wireguard_serializer::{hexdump, read_peer_stats, serialize_config};
 
 use std::ffi::c_void;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, SocketAddr};
 use std::os::windows::ffi::OsStrExt;
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -25,7 +25,7 @@ use windows::Win32::NetworkManagement::IpHelper::{
     MIB_IPINTERFACE_ROW, MIB_UNICASTIPADDRESS_ROW,
 };
 use windows::Win32::NetworkManagement::Ndis::{IfOperStatusUp, NET_LUID_LH};
-use windows::Win32::Networking::WinSock::{AF_INET, AF_INET6, SOCKADDR_INET};
+use windows::Win32::Networking::WinSock::{AF_INET, SOCKADDR_INET};
 
 // ============================================================================
 // MTU
@@ -862,7 +862,7 @@ fn best_route_interface_for(endpoint: SocketAddr) -> Result<u32, String> {
             None,
             0,
             None,
-            Some(&dst as *const SOCKADDR_INET),
+            &dst as *const SOCKADDR_INET,
             0,
             &mut best_route,
             &mut best_src,
@@ -949,7 +949,7 @@ fn add_full_tunnel_bypass_route(endpoint: SocketAddr) -> Result<MIB_IPFORWARD_RO
             None,
             0,
             None,
-            Some(&dst as *const SOCKADDR_INET),
+            &dst as *const SOCKADDR_INET,
             0,
             &mut best_route,
             &mut best_src,
