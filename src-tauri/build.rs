@@ -8,26 +8,22 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=src-tauri.manifest");
 
-    // Получаем целевую архитектуру
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH")
         .unwrap_or_else(|_| "x86_64".to_string());
 
     let manifest_dir = PathBuf::from(
-        env::var("CARGO_MANIFEST_DIR")
-            .expect("CARGO_MANIFEST_DIR is not set"),
+        env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is not set"),
     );
 
     println!("cargo:warning=Manifest dir: {}", manifest_dir.display());
     println!("cargo:warning=Target architecture: {}", target_arch);
 
-    // Папка для ресурсов (куда будут копироваться DLL)
     let resources_dir = manifest_dir.join("resources");
     fs::create_dir_all(&resources_dir)
         .expect("Failed to create resources directory");
 
     println!("cargo:warning=Resources dir: {}", resources_dir.display());
 
-    // Выбор путей в зависимости от архитектуры
     let (wireguard_candidates, wintun_candidates) = match target_arch.as_str() {
         "x86_64" => (
             vec![
@@ -56,11 +52,19 @@ fn main() {
         other => panic!("Unsupported architecture: {}", other),
     };
 
-    // Копируем DLL
-    copy_dll_if_exists(&manifest_dir, &resources_dir, "wireguard.dll", &wireguard_candidates);
-    copy_dll_if_exists(&manifest_dir, &resources_dir, "wintun.dll", &wintun_candidates);
+    copy_dll_if_exists(
+        &manifest_dir,
+        &resources_dir,
+        "wireguard.dll",
+        &wireguard_candidates,
+    );
+    copy_dll_if_exists(
+        &manifest_dir,
+        &resources_dir,
+        "wintun.dll",
+        &wintun_candidates,
+    );
 
-    // Компиляция Windows ресурсов (иконка, манифест)
     let mut res = winres::WindowsResource::new();
     res.set_manifest_file("src-tauri.manifest");
     res.compile()
@@ -69,7 +73,6 @@ fn main() {
     println!("cargo:warning=build.rs completed successfully");
 }
 
-/// Копирует DLL, если найдёт хотя бы в одном из кандидатов
 fn copy_dll_if_exists(
     manifest_dir: &PathBuf,
     resources_dir: &PathBuf,
@@ -95,7 +98,6 @@ fn copy_dll_if_exists(
         }
     }
 
-    // Если DLL не найдена — только предупреждение (чтобы CI не падал)
     println!(
         "cargo:warning={} not found in SDK paths. It will be downloaded in CI.",
         dll_name
