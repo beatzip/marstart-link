@@ -15,6 +15,7 @@ jobs:
 
     env:
       CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: 1
 
     steps:
       - name: Checkout
@@ -34,8 +35,23 @@ jobs:
       # ---------------------------
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
+
+      - name: Add Windows target
+        run: rustup target add x86_64-pc-windows-msvc
+
+      # ---------------------------
+      # Rust format / lint
+      # ---------------------------
+      - name: Rust fmt check
+        working-directory: src-tauri
+        run: cargo fmt --all -- --check
+
+      - name: Cargo clippy
+        working-directory: src-tauri
+        run: cargo clippy --all-targets --all-features -- -D warnings
 
       # ---------------------------
       # Install frontend deps
@@ -50,12 +66,25 @@ jobs:
         run: npm run build
 
       # ---------------------------
+      # Verify frontend build
+      # ---------------------------
+      - name: Verify frontend build
+        shell: pwsh
+        run: |
+          if (!(Test-Path "dist/index.html")) {
+            Write-Error "Frontend build failed: dist/index.html missing"
+            exit 1
+          }
+
+          Write-Host "Frontend build verified"
+
+      # ---------------------------
       # Download WireGuard + Wintun SDK
       # ---------------------------
       - name: Download SDKs
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path "src-tauri/sdk"
+          New-Item -ItemType Directory -Force -Path "src-tauri/sdk" | Out-Null
 
           # WireGuard-NT
           Invoke-WebRequest `
@@ -82,27 +111,32 @@ jobs:
           Get-ChildItem "src-tauri/sdk/wintun" -Recurse
 
       # ---------------------------
-      # Verify required files
+      # Verify required SDK files
       # ---------------------------
-      - name: Verify frontend build
+      - name: Verify SDK files
         shell: pwsh
         run: |
-          if (!(Test-Path "dist/index.html")) {
-            Write-Error "Frontend build failed: dist/index.html missing"
+          $wgDll = Get-ChildItem "src-tauri/sdk/wireguard-nt" -Recurse -Filter "wireguard.dll" -ErrorAction SilentlyContinue | Select-Object -First 1
+          $wintunDll = Get-ChildItem "src-tauri/sdk/wintun" -Recurse -Filter "wintun.dll" -ErrorAction SilentlyContinue | Select-Object -First 1
+
+          if (-not $wgDll) {
+            Write-Error "wireguard.dll missing"
             exit 1
           }
 
-          Write-Host "Frontend build verified"
+          if (-not $wintunDll) {
+            Write-Error "wintun.dll missing"
+            exit 1
+          }
+
+          Write-Host "SDK binaries verified"
 
       # ---------------------------
       # Cargo check
       # ---------------------------
       - name: Cargo check
         working-directory: src-tauri
-        run: cargo check --verbose
-      - name: Install Tauri dependencies
-        run: |
-          rustup target add x86_64-pc-windows-msvc
+        run: cargo check --release --verbose
 
       # ---------------------------
       # Build Tauri App
@@ -111,7 +145,6 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Game Accelerator ${{ github.ref_name }}"
