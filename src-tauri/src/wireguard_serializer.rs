@@ -11,7 +11,6 @@ pub fn serialize_config(config: &ParsedConfig) -> Result<Vec<u8>, String> {
         total += size_of::<WireguardPeer>();
         total += peer.allowed_ips.len() * size_of::<WireguardAllowedIp>();
     }
-
     let mut blob = vec![0u8; total];
     let mut off = 0;
 
@@ -77,24 +76,22 @@ pub fn serialize_config(config: &ParsedConfig) -> Result<Vec<u8>, String> {
                 IpAddr::V4(v4) => {
                     let mut addr: WireguardIpAddress = unsafe { std::mem::zeroed() };
                     // ✅ from_ne_bytes (NOT from_be_bytes)
-                    unsafe {
-                        addr.v4 = IN_ADDR {
-                            S_un: IN_ADDR_0 {
-                                S_addr: u32::from_ne_bytes(v4.octets()),
-                            },
-                        };
-                    }
+                    // ✅ FIX: убран лишний unsafe — запись в поле union безопасна
+                    addr.v4 = IN_ADDR {
+                        S_un: IN_ADDR_0 {
+                            S_addr: u32::from_ne_bytes(v4.octets()),
+                        },
+                    };
                     (addr, AF_INET)
                 }
                 IpAddr::V6(v6) => {
                     let mut addr: WireguardIpAddress = unsafe { std::mem::zeroed() };
-                    unsafe {
-                        addr.v6 = IN6_ADDR {
-                            u: windows::Win32::Networking::WinSock::IN6_ADDR_0 {
-                                Byte: v6.octets(),
-                            },
-                        };
-                    }
+                    // ✅ FIX: убран лишний unsafe — запись в поле union безопасна
+                    addr.v6 = IN6_ADDR {
+                        u: windows::Win32::Networking::WinSock::IN6_ADDR_0 {
+                            Byte: v6.octets(),
+                        },
+                    };
                     (addr, AF_INET6)
                 }
             };
@@ -126,7 +123,6 @@ pub fn read_peer_stats(blob: &[u8]) -> Vec<(u64, u64, u64)> {
     let iface_size = size_of::<WireguardInterface>();
     let peer_size = size_of::<WireguardPeer>();
     let aip_size = size_of::<WireguardAllowedIp>();
-
     if blob.len() < iface_size {
         return vec![];
     }
@@ -171,22 +167,22 @@ pub fn hexdump(data: &[u8], max_bytes: usize) -> String {
     let mut s = String::new();
     let len = data.len().min(max_bytes);
     for (i, chunk) in data[..len].chunks(16).enumerate() {
-        s.push_str(&format!("{:08x}  ", i * 16));
+        s.push_str(&format!("{:08x}   ", i * 16));
         for (j, byte) in chunk.iter().enumerate() {
-            s.push_str(&format!("{:02x} ", byte));
+            s.push_str(&format!("{:02x}  ", byte));
             if j == 7 {
                 s.push(' ');
             }
         }
         if chunk.len() < 16 {
             for j in chunk.len()..16 {
-                s.push_str("   ");
+                s.push_str("    ");
                 if j == 7 {
                     s.push(' ');
                 }
             }
         }
-        s.push_str(" |");
+        s.push_str(" | ");
         for byte in chunk {
             s.push(if byte.is_ascii_graphic() || *byte == b' ' {
                 *byte as char
@@ -197,7 +193,10 @@ pub fn hexdump(data: &[u8], max_bytes: usize) -> String {
         s.push_str("|\n");
     }
     if data.len() > max_bytes {
-        s.push_str(&format!("... ({} more bytes)\n", data.len() - max_bytes));
+        s.push_str(&format!(
+            "... ({} more bytes)\n",
+            data.len() - max_bytes
+        ));
     }
     s
 }
