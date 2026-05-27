@@ -2,6 +2,8 @@ use crate::utils::{create_forward_row, parse_cidr};
 use crate::wireguard_config::socket_addr_to_sockaddr_inet;
 use crate::wireguard_parser;
 use crate::wireguard_serializer::{hexdump, read_peer_stats, serialize_config};
+use libloading::os::windows::{Library, LOAD_WITH_ALTERED_SEARCH_PATH};
+use serde::{Deserialize, Serialize};
 use std::ffi::c_void;
 use std::net::{IpAddr, SocketAddr};
 use std::os::windows::ffi::OsStrExt;
@@ -9,8 +11,6 @@ use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use libloading::os::windows::{Library, LOAD_WITH_ALTERED_SEARCH_PATH};
-use serde::{Deserialize, Serialize};
 use tauri::State;
 use windows::Win32::NetworkManagement::IpHelper::{
     ConvertInterfaceLuidToIndex, CreateIpForwardEntry2, CreateUnicastIpAddressEntry,
@@ -682,7 +682,7 @@ pub async fn tunnel_apply_config(
         match wait_for_handshake(
             dll,
             adapter,
-            session_guard.clone(),   // ✅ FIX: клонируем Arc, чтобы session_guard остался доступен ниже
+            session_guard.clone(), // ✅ FIX: клонируем Arc, чтобы session_guard остался доступен ниже
             session_id,
             handle,
             Duration::from_secs(30),
