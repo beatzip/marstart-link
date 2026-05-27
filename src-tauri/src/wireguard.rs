@@ -734,11 +734,12 @@ fn best_route_interface_for(endpoint: SocketAddr) -> Result<u32, String> {
             None,
             0,
             None,
-            &dst,
+            Some(&dst as *const SOCKADDR_INET),
             0,
             &mut best_route,
             &mut best_src,
-        ).map_err(|e| format!("GetBestRoute2(route verification): {e}"))?;
+        )
+        .map_err(|e| format!("GetBestRoute2(route verification): {e}"))?;
 
         Ok(best_route.InterfaceIndex)
     }
@@ -808,42 +809,39 @@ fn add_full_tunnel_bypass_route(endpoint: SocketAddr) -> Result<MIB_IPFORWARD_RO
     };
 
     unsafe {
-        // 1. Find current best route to the VPN endpoint (= through ISP)
         let mut dst: SOCKADDR_INET = std::mem::zeroed();
-        dst.si_family                   = AF_INET;
-        dst.Ipv4.sin_family             = AF_INET;
-        dst.Ipv4.sin_addr.S_un.S_addr   = u32::from_ne_bytes(endpoint_ipv4.octets());
+        dst.si_family = AF_INET;
+        dst.Ipv4.sin_family = AF_INET;
+        dst.Ipv4.sin_addr.S_un.S_addr = u32::from_ne_bytes(endpoint_ipv4.octets());
 
         let mut best_route: MIB_IPFORWARD_ROW2 = std::mem::zeroed();
-        let mut best_src:   SOCKADDR_INET       = std::mem::zeroed();
+        let mut best_src: SOCKADDR_INET = std::mem::zeroed();
 
         GetBestRoute2(
             None,
-            0
+            0,
             None,
-            &dst,
+            Some(&dst as *const SOCKADDR_INET),
             0,
             &mut best_route,
             &mut best_src,
-        ).map_err(|e| format!("GetBestRoute2 for endpoint {endpoint_ipv4}: {e}"))?;
+        )
+        .map_err(|e| format!("GetBestRoute2 for endpoint {endpoint_ipv4}: {e}"))?;
 
-        // 2. Build /32 host route to endpoint via same gateway & interface
         let mut bypass: MIB_IPFORWARD_ROW2 = std::mem::zeroed();
         InitializeIpForwardEntry(&mut bypass);
-        bypass.InterfaceIndex                      = best_route.InterfaceIndex;
-        bypass.InterfaceLuid                       = best_route.InterfaceLuid;
-        bypass.DestinationPrefix.PrefixLength      = 32;
-        bypass.DestinationPrefix.Prefix.si_family  = AF_INET;
+        bypass.InterfaceIndex = best_route.InterfaceIndex;
+        bypass.InterfaceLuid = best_route.InterfaceLuid;
+        bypass.DestinationPrefix.PrefixLength = 32;
+        bypass.DestinationPrefix.Prefix.si_family = AF_INET;
         bypass.DestinationPrefix.Prefix.Ipv4.sin_addr.S_un.S_addr =
             u32::from_ne_bytes(endpoint_ipv4.octets());
-        bypass.NextHop = best_route.NextHop;       // same gateway as current route
-        bypass.Metric  = 1;                        // higher priority than everything
+        bypass.NextHop = best_route.NextHop;
+        bypass.Metric = 1;
 
-        // 3. If NextHop is 0 (on-link) the endpoint is on LAN — no loop risk, skip
         let next_hop_v4 = best_route.NextHop.Ipv4.sin_addr.S_un.S_addr;
         if next_hop_v4 == 0 {
             tracing::info!("Endpoint {endpoint_ipv4} is on-link — no bypass needed");
-            // Return a zeroed row so cleanup is a no-op
             return Ok(std::mem::zeroed());
         }
 
