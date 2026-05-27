@@ -1,7 +1,5 @@
 use crate::utils::{create_forward_row, parse_cidr};
-use crate::wireguard_config::{
-    socket_addr_to_sockaddr_inet,
-};
+use crate::wireguard_config::socket_addr_to_sockaddr_inet;
 use crate::wireguard_parser;
 use crate::wireguard_serializer::{hexdump, read_peer_stats, serialize_config};
 
