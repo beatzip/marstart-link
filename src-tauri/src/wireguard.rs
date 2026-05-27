@@ -731,9 +731,9 @@ fn best_route_interface_for(endpoint: SocketAddr) -> Result<u32, String> {
         let mut best_src: SOCKADDR_INET = std::mem::zeroed();
 
         GetBestRoute2(
-            std::ptr::null(),
+            None,
             0,
-            std::ptr::null(),
+            None,
             &dst,
             0,
             &mut best_route,
