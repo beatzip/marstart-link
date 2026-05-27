@@ -10,6 +10,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::os::windows::ffi::OsStrExt;
 use std::process::Command;
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use libloading::os::windows::{Library, LOAD_WITH_ALTERED_SEARCH_PATH};
@@ -51,6 +52,34 @@ pub enum WireGuardAdapterState {
     Up   = 1,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TunnelPhase {
+    Idle,
+    ApplyingConfig,
+    WaitingHandshake,
+    Connected,
+    Disconnecting,
+    Failed,
+}
+
+impl Default for TunnelPhase {
+    fn default() -> Self { Self::Idle }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct TunnelHealth {
+    pub adapter_ok: bool,
+    pub interface_ok: bool,
+    pub routes_ok: bool,
+    pub dns_ok: bool,
+    pub handshake_ok: bool,
+    pub game_path_verified: bool,
+    pub leak_detected: bool,
+    pub packet_loss_percent: f32,
+    pub avg_rtt_ms: u32,
+    pub jitter_ms: u32,
+}
+
 // ============================================================================
 // FFI Type Aliases
 // ============================================================================
@@ -73,6 +102,7 @@ struct TunnelRuntime {
     interface_index:  u32,
     assigned_address: Option<AssignedAddress>,
     dns_servers:      Vec<String>,
+    primary_endpoint: Option<SocketAddr>,
     /// Маршруты, созданные нами — удаляем при disconnect
     created_routes:   Vec<MIB_IPFORWARD_ROW2>,
 }
@@ -170,6 +200,7 @@ pub struct TunnelState {
     pub adapter: Arc<Mutex<Option<WireGuardAdapterHandle>>>,
     runtime:     Arc<Mutex<Option<TunnelRuntime>>>,
     pub status:  Arc<Mutex<TunnelStatus>>,
+    pub session_id: Arc<AtomicU64>,
 }
 
 impl TunnelState {
@@ -179,11 +210,24 @@ impl TunnelState {
             adapter: Arc::new(Mutex::new(None)),
             runtime: Arc::new(Mutex::new(None)),
             status: Arc::new(Mutex::new(TunnelStatus::default())),
+            session_id: Arc::new(AtomicU64::new(0)),
         }
     }
 
     pub fn clone_for_panic_hook(&self) -> (Arc<WireGuardDll>, Arc<Mutex<Option<WireGuardAdapterHandle>>>) {
         (self.dll.clone(), self.adapter.clone())
+    }
+
+    pub fn begin_session(&self) -> u64 {
+        self.session_id.fetch_add(1, Ordering::SeqCst).wrapping_add(1)
+    }
+
+    pub fn invalidate_session(&self) -> u64 {
+        self.session_id.fetch_add(1, Ordering::SeqCst).wrapping_add(1)
+    }
+
+    pub fn current_session(&self) -> u64 {
+        self.session_id.load(Ordering::SeqCst)
     }
 }
 
@@ -198,6 +242,9 @@ pub struct TunnelStatus {
     pub mtu:              Option<u32>,
     pub assigned_address: Option<String>,
     pub dns_servers:      Vec<String>,
+    pub phase:            TunnelPhase,
+    pub session_id:       u64,
+    pub health:           TunnelHealth,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -206,6 +253,24 @@ pub struct TunnelStats {
     pub total_tx:            u64,
     pub total_rx:            u64,
     pub last_handshake_unix: u64,  // 0 = нет хэндшейка
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct TunnelDiagnostics {
+    pub session_id: u64,
+    pub phase: TunnelPhase,
+    pub is_active: bool,
+    pub handshake_ok: bool,
+    pub handshake_age_secs: Option<u64>,
+    pub route_health_ok: bool,
+    pub dns_health_ok: bool,
+    pub game_path_verified: bool,
+    pub leak_detected: bool,
+    pub best_route_interface_index: Option<u32>,
+    pub expected_interface_index: Option<u32>,
+    pub packet_loss_percent: f32,
+    pub avg_rtt_ms: u32,
+    pub jitter_ms: u32,
 }
 
 // ============================================================================
@@ -231,7 +296,85 @@ pub async fn tunnel_get_stats(state: State<'_, TunnelState>) -> Result<TunnelSta
     // Last handshake = max across all peers (most recent)
     let last_handshake = peers.iter().map(|(_, _, hs)| *hs).max().unwrap_or(0);
 
-    Ok(TunnelStats { is_active: true, total_tx, total_rx, last_handshake_unix: last_handshake })
+    if last_handshake > 0 {
+        let mut status = state.status.lock().unwrap_or_else(|p| p.into_inner());
+        status.health.handshake_ok = true;
+        if matches!(status.phase, TunnelPhase::WaitingHandshake) {
+            status.phase = TunnelPhase::Connected;
+        }
+    }
+
+    let is_active = {
+        let status = state.status.lock().unwrap_or_else(|p| p.into_inner());
+        status.is_active
+    };
+
+    Ok(TunnelStats { is_active, total_tx, total_rx, last_handshake_unix: last_handshake })
+}
+
+#[tauri::command]
+pub async fn tunnel_get_diagnostics(state: State<'_, TunnelState>) -> Result<TunnelDiagnostics, String> {
+    let status = state.status.lock().unwrap_or_else(|p| p.into_inner()).clone();
+
+    let (runtime_endpoint, runtime_interface_index) = {
+        let guard = state.runtime.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(rt) = guard.as_ref() {
+            (rt.primary_endpoint, Some(rt.interface_index))
+        } else {
+            (None, None)
+        }
+    };
+
+    let mut diag = TunnelDiagnostics {
+        session_id: status.session_id,
+        phase: status.phase,
+        is_active: status.is_active,
+        handshake_ok: status.health.handshake_ok,
+        handshake_age_secs: None,
+        route_health_ok: status.health.routes_ok,
+        dns_health_ok: status.health.dns_ok,
+        game_path_verified: status.health.game_path_verified,
+        leak_detected: status.health.leak_detected,
+        best_route_interface_index: None,
+        expected_interface_index: runtime_interface_index,
+        packet_loss_percent: status.health.packet_loss_percent,
+        avg_rtt_ms: status.health.avg_rtt_ms,
+        jitter_ms: status.health.jitter_ms,
+    };
+
+    if let Some(handle) = {
+        let guard = state.adapter.lock().unwrap_or_else(|p| p.into_inner());
+        *guard
+    } {
+        if let Ok(buf) = state.dll.get_configuration(handle) {
+            let peers = read_peer_stats(&buf);
+            let latest_handshake = peers.iter().map(|(_, _, hs)| *hs).max().unwrap_or(0);
+
+            if latest_handshake > 0 {
+                diag.handshake_ok = true;
+                diag.handshake_age_secs = Some(current_unix_secs().saturating_sub(latest_handshake));
+            }
+        }
+    }
+
+    if let (Some(endpoint), Some(if_idx)) = (runtime_endpoint, runtime_interface_index) {
+        match best_route_interface_for(endpoint) {
+            Ok(best_if) => {
+                diag.best_route_interface_index = Some(best_if);
+                let route_ok = best_if == if_idx;
+                diag.route_health_ok = route_ok;
+                diag.game_path_verified = route_ok && diag.handshake_ok && !diag.leak_detected;
+
+                let mut status_guard = state.status.lock().unwrap_or_else(|p| p.into_inner());
+                status_guard.health.game_path_verified = diag.game_path_verified;
+                status_guard.health.leak_detected = !route_ok;
+                status_guard.health.routes_ok = status_guard.health.routes_ok && route_ok;
+            }
+            Err(e) => tracing::debug!("best_route_interface_for failed: {e}"),
+        }
+    }
+
+    Ok(diag)
 }
 
 #[tauri::command]
@@ -241,6 +384,9 @@ pub async fn tunnel_apply_config(
     adapter_name:    String,
     expected_routes: Vec<String>,
 ) -> Result<TunnelStatus, String> {
+    state.invalidate_session();
+    let session_id = state.begin_session();
+
     // ── 1. Parse (spawn_blocking: DNS resolution may block) ────────────────
     let parsed = tokio::task::spawn_blocking({
         let content = config_content.clone();
@@ -255,6 +401,14 @@ pub async fn tunnel_apply_config(
     let blob = serialize_config(&parsed)?;
     tracing::info!("WG blob {} bytes", blob.len());
     tracing::debug!("WG blob:\n{}", hexdump(&blob, 256));
+
+    {
+        let mut status = state.status.lock().unwrap_or_else(|p| p.into_inner());
+        status.phase = TunnelPhase::ApplyingConfig;
+        status.session_id = session_id;
+        status.health = TunnelHealth::default();
+        status.adapter_name = Some(adapter_name.clone());
+    }
 
     // ── 3. Create adapter + configure + bring Up (fast, synchronous) ───────
     let (handle, if_idx) = {
@@ -294,11 +448,21 @@ pub async fn tunnel_apply_config(
 
     // ── Helper: emergency teardown ──────────────────────────────────────────
     let do_emergency_teardown = |msg: String| -> String {
+        if let Some(mut rt) = state.runtime.lock().unwrap_or_else(|p| p.into_inner()).take() {
+            cleanup_runtime(&state.dll, &mut rt);
+        }
+
         let mut lock = state.adapter.lock().unwrap_or_else(|p| p.into_inner());
         if let Some(h) = lock.take() {
             let _ = state.dll.set_state(h, WireGuardAdapterState::Down);
             state.dll.close_adapter(h);
         }
+
+        let mut status = state.status.lock().unwrap_or_else(|p| p.into_inner());
+        status.is_active = false;
+        status.phase = TunnelPhase::Failed;
+        status.health.leak_detected = true;
+
         msg
     };
 
@@ -307,16 +471,23 @@ pub async fn tunnel_apply_config(
         return Err(do_emergency_teardown(e));
     }
     tracing::info!("Interface IfOperStatusUp confirmed");
+    {
+        let mut status = state.status.lock().unwrap_or_else(|p| p.into_inner());
+        status.health.interface_ok = true;
+    }
 
     // ── 5. Full-tunnel bypass route (MUST come before injecting 0.0.0.0/0) ─
     let mut runtime = TunnelRuntime {
         interface_index:  if_idx,
         assigned_address: None,
         dns_servers:      vec![],
+        primary_endpoint: parsed.peers.first().and_then(|peer| peer.endpoint),
         created_routes:   vec![],
     };
 
-    let is_full_tunnel = expected_routes.iter().any(|r| r == "0.0.0.0/0" || r == "0.0.0.0/1");
+    let has_half1 = expected_routes.iter().any(|r| r == "0.0.0.0/1");
+    let has_half2 = expected_routes.iter().any(|r| r == "128.0.0.0/1");
+    let is_full_tunnel = expected_routes.iter().any(|r| r == "0.0.0.0/0") || (has_half1 && has_half2);
     if is_full_tunnel {
         if let Some(peer) = parsed.peers.first() {
             if let Some(endpoint) = peer.endpoint {
@@ -337,6 +508,7 @@ pub async fn tunnel_apply_config(
             Ok(_) => {
                 tracing::info!("Assigned IP {ip}/{prefix} to interface");
                 runtime.assigned_address = Some(AssignedAddress { ip, prefix });
+                state.status.lock().unwrap_or_else(|p| p.into_inner()).health.adapter_ok = true;
             }
             Err(e) => {
                 cleanup_runtime(&state.dll, &mut runtime);
@@ -357,6 +529,9 @@ pub async fn tunnel_apply_config(
     // ── 8. Inject routes ─────────────────────────────────────────────────
     if let Err(e) = inject_routes(if_idx, &expected_routes, &mut runtime.created_routes) {
         tracing::warn!("Route injection partial failure (non-fatal): {e}");
+        state.status.lock().unwrap_or_else(|p| p.into_inner()).health.routes_ok = false;
+    } else {
+        state.status.lock().unwrap_or_else(|p| p.into_inner()).health.routes_ok = true;
     }
 
     // ── 9. DNS ──────────────────────────────────────────────────────────
@@ -365,8 +540,12 @@ pub async fn tunnel_apply_config(
             Ok(_) => {
                 tracing::info!("DNS set: {:?}", parsed.dns_servers);
                 runtime.dns_servers = parsed.dns_servers.clone();
+                state.status.lock().unwrap_or_else(|p| p.into_inner()).health.dns_ok = true;
             }
-            Err(e) => tracing::warn!("DNS set failed (non-fatal): {e}"),
+            Err(e) => {
+                tracing::warn!("DNS set failed (non-fatal): {e}");
+                state.status.lock().unwrap_or_else(|p| p.into_inner()).health.dns_ok = false;
+            },
         }
     }
 
@@ -374,6 +553,7 @@ pub async fn tunnel_apply_config(
     *state.runtime.lock().unwrap_or_else(|p| p.into_inner()) = Some(runtime);
 
     // ── 11. Update status ─────────────────────────────────────────────────
+    let health = state.status.lock().unwrap_or_else(|p| p.into_inner()).health.clone();
     let status = TunnelStatus {
         is_active:        true,
         adapter_name:     Some(adapter_name.clone()),
@@ -382,14 +562,27 @@ pub async fn tunnel_apply_config(
         assigned_address: parsed.interface_address.zip(parsed.interface_prefix)
             .map(|(ip, p)| format!("{ip}/{p}")),
         dns_servers:      parsed.dns_servers.clone(),
+        phase:            TunnelPhase::WaitingHandshake,
+        session_id,
+        health,
     };
     *state.status.lock().unwrap_or_else(|p| p.into_inner()) = status.clone();
 
     // ── 12. Async handshake wait (non-fatal — tunnel is up regardless) ────
     let dll = state.dll.clone();
+    let adapter = state.adapter.clone();
+    let status_arc = state.status.clone();
+    let session_guard = state.session_id.clone();
     tokio::spawn(async move {
-        match wait_for_handshake(dll, handle, Duration::from_secs(30)).await {
-            Ok(ts)  => tracing::info!("WireGuard handshake at unix={ts}"),
+        match wait_for_handshake(dll, adapter, session_guard, session_id, handle, Duration::from_secs(30)).await {
+            Ok(ts)  => {
+                tracing::info!("WireGuard handshake at unix={ts}");
+                if session_guard.load(Ordering::SeqCst) == session_id {
+                    let mut status = status_arc.lock().unwrap_or_else(|p| p.into_inner());
+                    status.phase = TunnelPhase::Connected;
+                    status.health.handshake_ok = true;
+                }
+            }
             Err(e)  => tracing::warn!("Handshake timeout/error: {e}"),
         }
     });
@@ -400,6 +593,12 @@ pub async fn tunnel_apply_config(
 
 #[tauri::command]
 pub async fn tunnel_disconnect(state: State<'_, TunnelState>) -> Result<(), String> {
+    state.invalidate_session();
+    {
+        let mut status = state.status.lock().unwrap_or_else(|p| p.into_inner());
+        status.phase = TunnelPhase::Disconnecting;
+    }
+
     // Cleanup routes, DNS, IP address
     if let Some(mut rt) = state.runtime.lock().unwrap_or_else(|p| p.into_inner()).take() {
         cleanup_runtime(&state.dll, &mut rt);
@@ -413,7 +612,11 @@ pub async fn tunnel_disconnect(state: State<'_, TunnelState>) -> Result<(), Stri
         tracing::info!("Adapter closed");
     }
 
-    *state.status.lock().unwrap_or_else(|p| p.into_inner()) = TunnelStatus::default();
+    let mut status = state.status.lock().unwrap_or_else(|p| p.into_inner());
+    *status = TunnelStatus::default();
+    status.phase = TunnelPhase::Idle;
+    status.health = TunnelHealth::default();
+    state.session_id.store(0, Ordering::SeqCst);
     Ok(())
 }
 
@@ -468,16 +671,33 @@ async fn wait_for_interface_up(if_idx: u32, timeout: Duration) -> Result<(), Str
 /// ASYNC handshake wait — не блокирует Tokio runtime
 async fn wait_for_handshake(
     dll:     Arc<WireGuardDll>,
+    adapter: Arc<Mutex<Option<WireGuardAdapterHandle>>>,
+    session_guard: Arc<AtomicU64>,
+    session_id: u64,
     handle:  WireGuardAdapterHandle,
     timeout: Duration,
 ) -> Result<u64, String> {
     let start    = Instant::now();
     let mut wait = 250u64;
     while start.elapsed() < timeout {
-        if let Ok(buf) = dll.get_configuration(handle) {
+        if session_guard.load(Ordering::SeqCst) != session_id {
+            return Err("Handshake task cancelled".into());
+        }
+
+        let current_handle = {
+            let guard = adapter.lock().unwrap_or_else(|p| p.into_inner());
+            match *guard {
+                Some(h) if h.0 == handle.0 => h,
+                _ => return Err("Adapter changed during handshake wait".into()),
+            }
+        };
+
+        if let Ok(buf) = dll.get_configuration(current_handle) {
             let peers = read_peer_stats(&buf);
-            if let Some(&(_, _, hs)) = peers.first() {
-                if hs > 0 { return Ok(hs); }
+            if let Some((_, _, hs)) = peers.iter().max_by_key(|(_, _, hs)| *hs) {
+                if *hs > 0 {
+                    return Ok(*hs);
+                }
             }
         }
         tokio::time::sleep(Duration::from_millis(wait)).await;
@@ -486,6 +706,43 @@ async fn wait_for_handshake(
     Err("No handshake within timeout".into())
 }
 
+
+
+fn current_unix_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+fn best_route_interface_for(endpoint: SocketAddr) -> Result<u32, String> {
+    let endpoint_ipv4 = match endpoint.ip() {
+        IpAddr::V4(v4) => v4,
+        IpAddr::V6(_) => return Err("route verification for IPv6 endpoint not implemented".into()),
+    };
+
+    unsafe {
+        let mut dst: SOCKADDR_INET = std::mem::zeroed();
+        dst.si_family = AF_INET;
+        dst.Ipv4.sin_family = AF_INET;
+        dst.Ipv4.sin_addr.S_un.S_addr = u32::from_ne_bytes(endpoint_ipv4.octets());
+
+        let mut best_route: MIB_IPFORWARD_ROW2 = std::mem::zeroed();
+        let mut best_src: SOCKADDR_INET = std::mem::zeroed();
+
+        GetBestRoute2(
+            std::ptr::null(),
+            0,
+            std::ptr::null(),
+            &dst,
+            0,
+            &mut best_route,
+            &mut best_src,
+        ).map_err(|e| format!("GetBestRoute2(route verification): {e}"))?;
+
+        Ok(best_route.InterfaceIndex)
+    }
+}
 fn set_interface_mtu(if_idx: u32, mtu: u32) -> Result<(), String> {
     unsafe {
         let mut row: MIB_IPINTERFACE_ROW = std::mem::zeroed();

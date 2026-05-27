@@ -132,6 +132,7 @@ fn run_app() -> Result<(), Box<dyn std::error::Error>> {
             wireguard::tunnel_disconnect,
             wireguard::tunnel_get_status,
             wireguard::tunnel_get_stats,
+            wireguard::tunnel_get_diagnostics,
         ])
 
         // ====================================================================
