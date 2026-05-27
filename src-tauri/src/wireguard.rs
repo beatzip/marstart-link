@@ -818,10 +818,13 @@ fn add_full_tunnel_bypass_route(endpoint: SocketAddr) -> Result<MIB_IPFORWARD_RO
         let mut best_src:   SOCKADDR_INET       = std::mem::zeroed();
 
         GetBestRoute2(
-            std::ptr::null(), 0,
-            std::ptr::null(), &dst,
+            None,
+            0
+            None,
+            &dst,
             0,
-            &mut best_route, &mut best_src,
+            &mut best_route,
+            &mut best_src,
         ).map_err(|e| format!("GetBestRoute2 for endpoint {endpoint_ipv4}: {e}"))?;
 
         // 2. Build /32 host route to endpoint via same gateway & interface
