@@ -20,8 +20,7 @@ pub const WIREGUARD_PEER_HAS_PERSISTENT_KEEPALIVE: WireguardPeerFlag = 1 << 2;
 pub const WIREGUARD_PEER_HAS_ENDPOINT: WireguardPeerFlag = 1 << 3;
 pub const WIREGUARD_PEER_REPLACE_ALLOWED_IPS: WireguardPeerFlag = 1 << 5;
 
-pub type WireguardAllowedIpFlag = u32;
-pub const _WIREGUARD_ALLOWED_IP_REMOVE: WireguardAllowedIpFlag = 1 << 0;
+
 
 // ============================================================================
 // PARSED CONFIG (Safe Rust)
@@ -134,7 +133,6 @@ pub fn socket_addr_to_sockaddr_inet(addr: &SocketAddr) -> SOCKADDR_INET {
             };
             sockaddr.Ipv6.Anonymous.sin6_scope_id = v6.scope_id();
         }
-    }
     sockaddr
 }
 
