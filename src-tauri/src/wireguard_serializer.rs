@@ -88,9 +88,7 @@ pub fn serialize_config(config: &ParsedConfig) -> Result<Vec<u8>, String> {
                     let mut addr: WireguardIpAddress = unsafe { std::mem::zeroed() };
                     // ✅ FIX: убран лишний unsafe — запись в поле union безопасна
                     addr.v6 = IN6_ADDR {
-                        u: windows::Win32::Networking::WinSock::IN6_ADDR_0 {
-                            Byte: v6.octets(),
-                        },
+                        u: windows::Win32::Networking::WinSock::IN6_ADDR_0 { Byte: v6.octets() },
                     };
                     (addr, AF_INET6)
                 }
@@ -193,10 +191,7 @@ pub fn hexdump(data: &[u8], max_bytes: usize) -> String {
         s.push_str("|\n");
     }
     if data.len() > max_bytes {
-        s.push_str(&format!(
-            "... ({} more bytes)\n",
-            data.len() - max_bytes
-        ));
+        s.push_str(&format!("... ({} more bytes)\n", data.len() - max_bytes));
     }
     s
 }
