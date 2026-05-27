@@ -48,20 +48,15 @@ pub enum WireGuardAdapterState {
     Up = 1,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)], Default]
 pub enum TunnelPhase {
+    #[default]
     Idle,
     ApplyingConfig,
     WaitingHandshake,
     Connected,
     Disconnecting,
     Failed,
-}
-
-impl Default for TunnelPhase {
-    fn default() -> Self {
-        Self::Idle
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -271,10 +266,6 @@ impl TunnelState {
         self.session_id
             .fetch_add(1, Ordering::SeqCst)
             .wrapping_add(1)
-    }
-
-    pub fn current_session(&self) -> u64 {
-        self.session_id.load(Ordering::SeqCst)
     }
 }
 
