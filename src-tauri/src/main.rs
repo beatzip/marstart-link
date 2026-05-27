@@ -16,8 +16,8 @@ use std::sync::Arc;
 
 use tauri::Manager;
 
-use tracing_appender::rolling;
 use tracing_appender::non_blocking::WorkerGuard;
+use tracing_appender::rolling;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 use crate::utils::resolve_dll_path;
@@ -49,8 +49,7 @@ fn setup_logging() -> WorkerGuard {
     let file_appender = rolling::daily(&log_dir, "app.log");
     let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
 
-    let env_filter =
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
     tracing_subscriber::registry()
         .with(env_filter)
