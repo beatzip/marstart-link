@@ -2,266 +2,101 @@
 
 <div align="center">
 
-## Low-Latency SD-WAN / Gaming VPN Client for Windows
+**Низколатентный SD-WAN / Gaming VPN клиент для Windows**
 
-Built with **Rust**, **Tauri**, **WireGuard-NT**, and **Wintun**
+Снижает пинг и повышает стабильность соединения в играх через умную маршрутизацию.
 
 <br>
 
-<img src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6?style=for-the-badge&logo=windows&logoColor=white" />
-<img src="https://img.shields.io/badge/backend-Rust-000000?style=for-the-badge&logo=rust" />
-<img src="https://img.shields.io/badge/frontend-Tauri-24C8DB?style=for-the-badge&logo=tauri&logoColor=white" />
-<img src="https://img.shields.io/badge/network-WireGuard--NT-blueviolet?style=for-the-badge" />
-<img src="https://img.shields.io/badge/status-Alpha-181717?style=for-the-badge" />
+<img src="https://img.shields.io/badge/Windows-10%20%2F%2011-0078D6?style=for-the-badge&logo=windows&logoColor=white" />
+<img src="https://img.shields.io/badge/Rust-000000?style=for-the-badge&logo=rust&logoColor=white" />
+<img src="https://img.shields.io/badge/Tauri-24C8DB?style=for-the-badge&logo=tauri&logoColor=white" />
+<img src="https://img.shields.io/badge/WireGuard--NT-4B0082?style=for-the-badge" />
 
-<br><br>
-
-**Experimental gaming-focused SD-WAN client with custom VPS routing, low-overhead networking, and modern desktop UI.**
+![GitHub stars](https://img.shields.io/github/stars/YOUR_USERNAME/sd-wan-gaming-client?style=social)
+![GitHub forks](https://img.shields.io/github/forks/YOUR_USERNAME/sd-wan-gaming-client?style=social)
 
 </div>
 
 ---
 
-# ✨ Features
+## ✨ Почему Game Accelerator?
 
-## 🛡️ Native WireGuard-NT Integration
+- **Меньше пинга** — умная маршрутизация через собственные VPS
+- **Нативная производительность** — WireGuard-NT + Wintun
+- **Лёгкий и быстрый** — современный минималистичный интерфейс
+- **Split-tunnel** — игра идёт через VPN, остальной трафик — напрямую
 
-* Dynamic loading of WireGuard-NT and Wintun
-* Low-level Windows networking integration
-* Runtime tunnel management
-* Native Win32 networking APIs
-* Safer DLL loading behavior
-
----
-
-## 🌐 Tunnel & Routing Management
-
-* Tunnel start / stop handling
-* Runtime status monitoring
-* TX/RX statistics
-* Automatic route injection
-* MTU management
-* Route metric prioritization
-* Split-tunnel groundwork
+Идеально для соревновательных игр (Valorant, CS2, Warzone, Dota 2, Apex и др.).
 
 ---
 
-## ☁️ Custom VPS Profiles
+## 🚀 Быстрый старт
 
-* Add your own VPS servers
-* Store local profiles
-* Switch configurations quickly
-* Multi-profile architecture
-* Future import/export support
+### Требования
+- Windows 10 / 11 (64-bit)
+- Собственный VPS (для лучшего результата)
 
----
+### Установка
 
-## 🖥️ Modern Desktop UI
+1. Скачай последнюю версию из **[Releases](https://github.com/YOUR_USERNAME/sd-wan-gaming-client/releases)**
+2. Запусти установщик
+3. Добавь конфигурацию своего VPS
+4. Подключись и играй!
 
-* Black minimal interface
-* Blue accent styling
-* Lightweight rendering
-* React + Tauri frontend
-* Live connection updates
-
----
-
-# 📸 UI Direction
-
-<div align="center">
-
-| Theme           | Style            |
-| --------------- | ---------------- |
-| ⚫ Dark          | Minimalistic     |
-| 🔵 Blue accents | Gaming-oriented  |
-| 🪶 Lightweight  | Low visual noise |
-
-</div>
-
----
-
-# 🏗️ Architecture
-
-```text
-Frontend (React + Tauri)
-        │
-        ▼
-Tauri IPC Bridge
-        │
-        ▼
-Rust Backend
-        │
- ┌───────────────┐
- │ WireGuard-NT  │
- │ Wintun        │
- │ Windows APIs  │
- └───────────────┘
-```
-
----
-
-# 📂 Project Structure
-
-```text
-project-root/
-│
-├── src/                    # Frontend (React/Vite)
-├── src-tauri/              # Rust backend + networking
-├── dist/                   # Frontend production build
-├── .github/workflows/      # GitHub Actions pipelines
-├── tauri.conf.json         # Tauri configuration
-├── package.json
-└── README.md
-```
-
----
-
-# ⚙️ Tech Stack
-
-## Frontend
-
-* React
-* Vite
-* Tauri
-
-## Backend
-
-* Rust (Edition 2021)
-
-## Networking
-
-* WireGuard-NT
-* Wintun
-* Windows IP Helper API
-* windows-rs
-
-## CI/CD
-
-* GitHub Actions
-
----
-
-# 🚀 Getting Started
-
-## Requirements
-
-* Windows 10 / 11
-* Rust stable toolchain
-* Node.js 20+
-* Visual Studio Build Tools
-
----
-
-## Install Dependencies
+**Или собери из исходников:**
 
 ```bash
+# Клонируй репозиторий
+git clone https://github.com/YOUR_USERNAME/sd-wan-gaming-client.git
+cd sd-wan-gaming-client
+
+# Установка зависимостей
 npm install
-```
 
----
-
-## Development Mode
-
-```bash
+# Запуск в режиме разработки
 npm run tauri dev
-```
 
----
+✨ Основные возможности
 
-## Production Build
+Нативная интеграция WireGuard-NT — максимальная скорость и минимальные overhead
+Управление туннелями — запуск/остановка, статистика TX/RX
+Профили VPS — быстрый переключение между серверами
+Автоматическая маршрутизация — приоритет игрового трафика
+Современный UI — тёмная тема, минимализм, live-статус
 
-```bash
-npm run build
-npm run tauri build
-```
 
----
+🖼️ Скриншоты
 
-# 🚀 Automated Releases
 
-The repository includes a GitHub Actions pipeline for automated Windows builds.
+🛠️ Технологии
 
-Pipeline responsibilities:
+Backend: Rust 2021 + windows-rs
+Frontend: React + TypeScript + Vite + Tauri
+Networking: WireGuard-NT, Wintun, Windows IP Helper API
 
-* install Node.js & Rust
-* build frontend assets
-* download networking SDKs
-* compile Tauri application
-* publish GitHub Release artifacts
 
-Workflow location:
+📋 Roadmap
 
-```text
-.github/workflows/release.yml
-```
+ Split tunneling (уже в работе)
+ Графики пинга и потерь пакетов в реальном времени
+ Автоматический выбор лучшего маршрута
+ Шифрование профилей
+ Multi-hop и балансировка
 
----
 
-# 🚧 Roadmap
+🤝 Contributing
+Очень приветствуются вклады! Особенно в:
 
-## Core Networking
+Тестирование на реальных VPS
+Windows networking
+UI/UX улучшения
 
-* [ ] Finalize WireGuard serialization
-* [ ] Improve DNS resolution
-* [ ] Stabilize endpoint handling
-* [ ] Improve adapter lifecycle management
+Смотри CONTRIBUTING.md
 
-## SD-WAN Features
+📜 License
+MIT License — см. файл LICENSE.
 
-* [ ] Split tunneling
-* [ ] Smart route prioritization
-* [ ] Multi-route balancing
-* [ ] Dynamic latency routing
 
-## VPS Features
-
-* [ ] Encrypted profile storage
-* [ ] Import/export support
-* [ ] Connection testing
-* [ ] Multi-server management
-
-## UI & Diagnostics
-
-* [ ] Real-time graphs
-* [ ] Connection quality indicators
-* [ ] Advanced diagnostics panel
-* [ ] Better telemetry & logging
-
----
-
-# ⚠️ Project Status
-
-> **Alpha / Active Development**
-
-Core systems are already integrated, but the project is still under active development and stabilization.
-
-This software should currently be considered experimental.
-
----
-
-# 🤝 Contributing
-
-Contributions are welcome.
-
-Especially useful areas:
-
-* Rust networking
-* Windows routing
-* WireGuard internals
-* UI/UX
-* Diagnostics & telemetry
-* Real-world VPS testing
-
----
-
-# 📜 License
-
-License not specified yet.
-
----
-
-<div align="center">
-
-## Built for low-latency networking on Windows
-
-</div>
+⭐ Если проект тебе нравится — поставь звезду!  
+Помоги сделать лучший gaming VPN для Windows.
