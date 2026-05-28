@@ -1,7 +1,6 @@
 use crate::utils::{create_forward_row, parse_cidr};
 use crate::wireguard_config::socket_addr_to_sockaddr_inet;
-use crate::wireguard_parser;
-use crate::wireguard_serializer::{hexdump, read_peer_stats, serialize_config};
+use crate::wireguard_serializer::read_peer_stats;
 
 use std::ffi::c_void;
 use std::net::{IpAddr, SocketAddr};
@@ -15,9 +14,9 @@ use libloading::os::windows::{Library, LOAD_WITH_ALTERED_SEARCH_PATH};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 use windows::Win32::NetworkManagement::IpHelper::{
-    ConvertInterfaceLuidToIndex, CreateIpForwardEntry2, CreateUnicastIpAddressEntry,
-    DeleteIpForwardEntry2, DeleteUnicastIpAddressEntry, GetBestRoute2, GetIfEntry2,
-    GetIpForwardEntry2, GetIpInterfaceEntry, GetUnicastIpAddressEntry, InitializeIpForwardEntry,
+    CreateIpForwardEntry2, CreateUnicastIpAddressEntry,
+    DeleteIpForwardEntry2, DeleteUnicastIpAddressEntry, GetIfEntry2,
+    GetIpForwardEntry2, GetUnicastIpAddressEntry, InitializeIpForwardEntry,
     InitializeIpInterfaceEntry, InitializeUnicastIpAddressEntry, SetIpForwardEntry2,
     SetIpInterfaceEntry, SetUnicastIpAddressEntry, MIB_IF_ROW2, MIB_IPFORWARD_ROW2,
     MIB_IPINTERFACE_ROW, MIB_UNICASTIPADDRESS_ROW,
@@ -50,20 +49,15 @@ pub enum WireGuardAdapterState {
     Up = 1,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum TunnelPhase {
+    #[default]
     Idle,
     ApplyingConfig,
     WaitingHandshake,
     Connected,
     Disconnecting,
     Failed,
-}
-
-impl Default for TunnelPhase {
-    fn default() -> Self {
-        Self::Idle
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -275,6 +269,7 @@ impl TunnelState {
             .wrapping_add(1)
     }
 
+    #[allow(dead_code)]
     pub fn current_session(&self) -> u64 {
         self.session_id.load(Ordering::SeqCst)
     }
@@ -452,6 +447,9 @@ pub async fn tunnel_apply_config(
     adapter_name: String,
     expected_routes: Vec<String>,
 ) -> Result<TunnelStatus, String> {
+    use crate::wireguard_parser;
+    use crate::wireguard_serializer::{hexdump, serialize_config};
+    
     state.invalidate_session();
     let session_id = state.begin_session();
 
@@ -461,7 +459,7 @@ pub async fn tunnel_apply_config(
         move || wireguard_parser::parse_wireguard_config(&content)
     })
     .await
-    .map_err(|e| format!("Parse task panic: {e}"))??;
+    .map_err(|e| format!("Parse task panic: {e}"))?;
 
     tracing::info!("Config parsed: {} peer(s)", parsed.peers.len());
 
@@ -770,6 +768,7 @@ pub fn setup_panic_hook(
 // ============================================================================
 
 fn luid_to_index(luid: NET_LUID_LH) -> Result<u32, String> {
+    use windows::Win32::NetworkManagement::IpHelper::ConvertInterfaceLuidToIndex;
     let mut idx = 0u32;
     unsafe { ConvertInterfaceLuidToIndex(&luid, &mut idx) }
         .map_err(|e| format!("LUID→Index: {e}"))?;
@@ -843,6 +842,7 @@ fn current_unix_secs() -> u64 {
 }
 
 fn best_route_interface_for(endpoint: SocketAddr) -> Result<u32, String> {
+    use windows::Win32::NetworkManagement::IpHelper::GetBestRoute2;
     let endpoint_ipv4 = match endpoint.ip() {
         IpAddr::V4(v4) => v4,
         IpAddr::V6(_) => return Err("route verification for IPv6 endpoint not implemented".into()),
@@ -871,7 +871,9 @@ fn best_route_interface_for(endpoint: SocketAddr) -> Result<u32, String> {
         Ok(best_route.InterfaceIndex)
     }
 }
+
 fn set_interface_mtu(if_idx: u32, mtu: u32) -> Result<(), String> {
+    use windows::Win32::NetworkManagement::IpHelper::{GetIpInterfaceEntry, SetIpInterfaceEntry};
     unsafe {
         let mut row: MIB_IPINTERFACE_ROW = std::mem::zeroed();
         InitializeIpInterfaceEntry(&mut row);
@@ -930,6 +932,7 @@ fn remove_interface_address(if_idx: u32, ip: IpAddr, prefix: u8) {
 /// Критически важно для full-tunnel (0.0.0.0/0): без него трафик к VPS endpoint
 /// тоже пойдёт в туннель → routing loop → отключение.
 fn add_full_tunnel_bypass_route(endpoint: SocketAddr) -> Result<MIB_IPFORWARD_ROW2, String> {
+    use windows::Win32::NetworkManagement::IpHelper::GetBestRoute2;
     let endpoint_ipv4 = match endpoint.ip() {
         IpAddr::V4(v4) => v4,
         IpAddr::V6(_) => return Err("IPv6 endpoint bypass not implemented".into()),

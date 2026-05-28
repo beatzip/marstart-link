@@ -110,7 +110,7 @@ pub fn serialize_config(config: &ParsedConfig) -> Result<Vec<u8>, String> {
 }
 
 /// Безопасная копия #[repr(C)] структуры в буфер
-fn write_struct<T: Copy>(val: &T, buf: &mut Vec<u8>, off: &mut usize) {
+fn write_struct<T: Copy>(val: &T, buf: &mut [u8], off: &mut usize) {
     let bytes: &[u8] =
         unsafe { std::slice::from_raw_parts((val as *const T) as *const u8, size_of::<T>()) };
     buf[*off..*off + size_of::<T>()].copy_from_slice(bytes);
