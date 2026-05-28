@@ -1,1 +1,0 @@
-cargo:rustc-link-search=native=/workspaces/sd-wan-gaming-client/src-tauri/target/x86_64-pc-windows-gnu/debug/build/webview2-com-sys-441d4cca58b64e9b/out/x64
