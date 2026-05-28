@@ -71,6 +71,7 @@ pub fn serialize_config(config: &ParsedConfig) -> Result<Vec<u8>, String> {
 
         // ── AllowedIPs ─────────────────────────────────────────────────────
         for aip in &peer.allowed_ips {
+            // ✅ FIX: from_ne_bytes preserves network byte order in memory.
             //   from_be_bytes was causing REVERSED IP bytes → wrong routes.
             let (address, address_family) = match aip.address {
                 IpAddr::V4(v4) => (
@@ -79,20 +80,20 @@ pub fn serialize_config(config: &ParsedConfig) -> Result<Vec<u8>, String> {
                             S_un: IN_ADDR_0 {
                                 S_addr: u32::from_ne_bytes(v4.octets()),
                             },
-                        };
-                    }
+                        },
+                    },
                     AF_INET,
                 ),
-                IpAddr::V6(v6) => {
+                IpAddr::V6(v6) => (
                     WireguardIpAddress {
                         v6: IN6_ADDR {
                             u: windows::Win32::Networking::WinSock::IN6_ADDR_0 {
                                 Byte: v6.octets(),
                             },
-                        };
-                    }
+                        },
+                    },
                     AF_INET6,
-                    ),
+              ),
           };          
                     
             let wg_ip = WireguardAllowedIp {
@@ -101,8 +102,7 @@ pub fn serialize_config(config: &ParsedConfig) -> Result<Vec<u8>, String> {
                 cidr: aip.cidr,
             };
             write_struct(&wg_ip, &mut blob, &mut off);
-        }
-    }
+        }  
 
     debug_assert_eq!(off, total, "serializer produced unexpected size");
     Ok(blob)
