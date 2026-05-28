@@ -109,7 +109,7 @@ pub struct WireguardAllowedIp {
 // ============================================================================
 pub fn socket_addr_to_sockaddr_inet(addr: &SocketAddr) -> SOCKADDR_INET {
     let mut sockaddr: SOCKADDR_INET = unsafe { std::mem::zeroed() };
-    unsafe {
+    
         match addr {
             SocketAddr::V4(v4) => {
                 sockaddr.si_family = AF_INET;
