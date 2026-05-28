@@ -50,20 +50,16 @@ pub enum WireGuardAdapterState {
     Up = 1,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[default]
 pub enum TunnelPhase {
+    #[default]
     Idle,
     ApplyingConfig,
     WaitingHandshake,
     Connected,
     Disconnecting,
     Failed,
-}
-
-impl Default for TunnelPhase {
-    fn default() -> Self {
-        Self::Idle
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -275,6 +271,7 @@ impl TunnelState {
             .wrapping_add(1)
     }
 
+    #[allow(dead_code)]
     pub fn current_session(&self) -> u64 {
         self.session_id.load(Ordering::SeqCst)
     }
@@ -461,7 +458,7 @@ pub async fn tunnel_apply_config(
         move || wireguard_parser::parse_wireguard_config(&content)
     })
     .await
-    .map_err(|e| format!("Parse task panic: {e}"))??;
+    .map_err(|e| format!("Parse task panic: {e}"))??
 
     tracing::info!("Config parsed: {} peer(s)", parsed.peers.len());
 
@@ -772,7 +769,7 @@ pub fn setup_panic_hook(
 fn luid_to_index(luid: NET_LUID_LH) -> Result<u32, String> {
     let mut idx = 0u32;
     unsafe { ConvertInterfaceLuidToIndex(&luid, &mut idx) }
-        .map_err(|e| format!("LUID→Index: {e}"))?;
+        .map_err(|e| format!("LUID→Index: {e}"))?
     Ok(idx)
 }
 
@@ -866,7 +863,7 @@ fn best_route_interface_for(endpoint: SocketAddr) -> Result<u32, String> {
             &mut best_route,
             &mut best_src,
         )
-        .map_err(|e| format!("GetBestRoute2(route verification): {e}"))?;
+        .map_err(|e| format!("GetBestRoute2(route verification): {e}"))?
 
         Ok(best_route.InterfaceIndex)
     }
@@ -877,9 +874,9 @@ fn set_interface_mtu(if_idx: u32, mtu: u32) -> Result<(), String> {
         InitializeIpInterfaceEntry(&mut row);
         row.InterfaceIndex = if_idx;
         row.Family = AF_INET;
-        GetIpInterfaceEntry(&mut row).map_err(|e| format!("GetIpInterfaceEntry: {e}"))?;
+        GetIpInterfaceEntry(&mut row).map_err(|e| format!("GetIpInterfaceEntry: {e}"))?
         row.NlMtu = mtu;
-        SetIpInterfaceEntry(&mut row).map_err(|e| format!("SetIpInterfaceEntry(MTU): {e}"))?;
+        SetIpInterfaceEntry(&mut row).map_err(|e| format!("SetIpInterfaceEntry(MTU): {e}"))?
     }
     Ok(())
 }
@@ -953,7 +950,7 @@ fn add_full_tunnel_bypass_route(endpoint: SocketAddr) -> Result<MIB_IPFORWARD_RO
             &mut best_route,
             &mut best_src,
         )
-        .map_err(|e| format!("GetBestRoute2 for endpoint {endpoint_ipv4}: {e}"))?;
+        .map_err(|e| format!("GetBestRoute2 for endpoint {endpoint_ipv4}: {e}"))?
 
         let mut bypass: MIB_IPFORWARD_ROW2 = std::mem::zeroed();
         InitializeIpForwardEntry(&mut bypass);
@@ -973,7 +970,7 @@ fn add_full_tunnel_bypass_route(endpoint: SocketAddr) -> Result<MIB_IPFORWARD_RO
         }
 
         CreateIpForwardEntry2(&bypass)
-            .map_err(|e| format!("CreateIpForwardEntry2 (bypass): {e}"))?;
+            .map_err(|e| format!("CreateIpForwardEntry2 (bypass): {e}"))?
 
         tracing::info!(
             "Bypass host route added: {}/32 via gateway_if={}",
@@ -1045,7 +1042,7 @@ fn run_powershell(script: &str) -> Result<(), String> {
         ])
         .arg(script)
         .output()
-        .map_err(|e| format!("PowerShell launch failed: {e}"))?;
+        .map_err(|e| format!("PowerShell launch failed: {e}"))?
     if out.status.success() {
         Ok(())
     } else {
@@ -1060,8 +1057,7 @@ fn apply_dns_servers(if_idx: u32, servers: &[String]) -> Result<(), String> {
     }
     let quoted = servers
         .iter()
-        .map(|s| format!("'{}'", s.replace('\'', "''")))
-        .collect::<Vec<_>>()
+        .map(|s| format!("'{}'", s.replace('\'', "''")))  .collect::<Vec<_>>()
         .join(",");
     run_powershell(&format!(
         "Set-DnsClientServerAddress -InterfaceIndex {if_idx} -ServerAddresses @({quoted})"
