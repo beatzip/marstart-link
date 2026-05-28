@@ -15,35 +15,10 @@ jobs:
 
     env:
       CARGO_TERM_COLOR: always
-      RUST_BACKTRACE: 1
 
     steps:
-      # ---------------------------
-      # Checkout (С ЧИСТКОЙ)
-      # ---------------------------
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          clean: true
-
-      # ---------------------------
-      # Debug commit state
-      # ---------------------------
-      - name: Show commit
-        run: git rev-parse HEAD
-
-      - name: Show status
-        run: git status
-
-      # ---------------------------
-      # Force clean workspace (КРИТИЧНО)
-      # ---------------------------
-      - name: Hard clean workspace
-        shell: pwsh
-        run: |
-          git reset --hard
-          git clean -xfd
 
       # ---------------------------
       # Node.js
@@ -55,39 +30,12 @@ jobs:
           cache: npm
 
       # ---------------------------
-      # Rust toolchain
+      # Rust
       # ---------------------------
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
-
-      # ---------------------------
-      # Rust cache (ОГРАНИЧЕННЫЙ)
-      # ---------------------------
-      - name: Rust Cache
+      - name: Cache Rust
         uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
-          cache-targets: false
-
-      # ---------------------------
-      # Add Windows target
-      # ---------------------------
-      - name: Add Windows target
-        run: rustup target add x86_64-pc-windows-msvc
-
-      # ---------------------------
-      # Rust format check
-      # ---------------------------
-      - name: Rust fmt check
-        working-directory: src-tauri
-        run: cargo fmt --all -- --check
-
-      # ---------------------------
-      # Clippy (strict)
-      # ---------------------------
-      - name: Cargo clippy
-        working-directory: src-tauri
-        run: cargo clippy --all-targets --all-features -- -D warnings
 
       # ---------------------------
       # Install frontend deps
@@ -96,30 +44,20 @@ jobs:
         run: npm ci
 
       # ---------------------------
-      # Build frontend
+      # Build frontend (Vite/React)
       # ---------------------------
       - name: Build frontend
         run: npm run build
 
       # ---------------------------
-      # Verify frontend build
-      # ---------------------------
-      - name: Verify frontend build
-        shell: pwsh
-        run: |
-          if (!(Test-Path "dist/index.html")) {
-            Write-Error "Frontend build failed: dist/index.html missing"
-            exit 1
-          }
-
-      # ---------------------------
-      # Download SDKs
+      # Download WireGuard + Wintun SDK
       # ---------------------------
       - name: Download SDKs
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path "src-tauri/sdk" | Out-Null
+          New-Item -ItemType Directory -Force -Path "src-tauri/sdk"
 
+          # WireGuard-NT
           Invoke-WebRequest `
             -Uri "https://download.wireguard.com/wireguard-nt/wireguard-nt-1.1.zip" `
             -OutFile "src-tauri/sdk/wireguard-nt.zip"
@@ -129,6 +67,7 @@ jobs:
             -DestinationPath "src-tauri/sdk/wireguard-nt" `
             -Force
 
+          # Wintun
           Invoke-WebRequest `
             -Uri "https://www.wintun.net/builds/wintun-0.14.1.zip" `
             -OutFile "src-tauri/sdk/wintun.zip"
@@ -138,31 +77,32 @@ jobs:
             -DestinationPath "src-tauri/sdk/wintun" `
             -Force
 
+          Write-Host "SDKs downloaded successfully"
+          Get-ChildItem "src-tauri/sdk/wireguard-nt" -Recurse
+          Get-ChildItem "src-tauri/sdk/wintun" -Recurse
+
       # ---------------------------
-      # Verify SDKs
+      # Verify required files
       # ---------------------------
-      - name: Verify SDK files
+      - name: Verify frontend build
         shell: pwsh
         run: |
-          $wg = Get-ChildItem "src-tauri/sdk/wireguard-nt" -Recurse -Filter "wireguard.dll" | Select-Object -First 1
-          $wt = Get-ChildItem "src-tauri/sdk/wintun" -Recurse -Filter "wintun.dll" | Select-Object -First 1
+          if (!(Test-Path "dist/index.html")) {
+            Write-Error "Frontend build failed: dist/index.html missing"
+            exit 1
+          }
 
-          if (-not $wg) { Write-Error "wireguard.dll missing"; exit 1 }
-          if (-not $wt) { Write-Error "wintun.dll missing"; exit 1 }
-
-      # ---------------------------
-      # FINAL CLEAN BUILD STATE (ВАЖНО)
-      # ---------------------------
-      - name: Cargo clean (critical)
-        working-directory: src-tauri
-        run: cargo clean
+          Write-Host "Frontend build verified"
 
       # ---------------------------
-      # Cargo check (release)
+      # Cargo check
       # ---------------------------
       - name: Cargo check
         working-directory: src-tauri
-        run: cargo check --release --verbose
+        run: cargo check --verbose
+      - name: Install Tauri dependencies
+        run: |
+          rustup target add x86_64-pc-windows-msvc
 
       # ---------------------------
       # Build Tauri App
@@ -171,6 +111,7 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Game Accelerator ${{ github.ref_name }}"

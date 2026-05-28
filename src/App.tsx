@@ -7,44 +7,12 @@ type TunnelStatus = {
   adapter_name: string | null;
   interface_index: number | null;
   mtu: number | null;
-  phase?: string;
-  session_id?: number;
-  health?: {
-    adapter_ok?: boolean;
-    interface_ok?: boolean;
-    routes_ok?: boolean;
-    dns_ok?: boolean;
-    handshake_ok?: boolean;
-    game_path_verified?: boolean;
-    leak_detected?: boolean;
-    packet_loss_percent?: number;
-    avg_rtt_ms?: number;
-    jitter_ms?: number;
-  };
 };
 
 type TunnelStats = {
   is_active: boolean;
   total_tx: number;
   total_rx: number;
-  last_handshake_unix?: number;
-};
-
-type TunnelDiagnostics = {
-  session_id: number;
-  phase: string;
-  is_active: boolean;
-  handshake_ok: boolean;
-  handshake_age_secs: number | null;
-  route_health_ok: boolean;
-  dns_health_ok: boolean;
-  game_path_verified: boolean;
-  leak_detected: boolean;
-  best_route_interface_index: number | null;
-  expected_interface_index: number | null;
-  packet_loss_percent: number;
-  avg_rtt_ms: number;
-  jitter_ms: number;
 };
 
 type SavedProfile = {
@@ -355,7 +323,6 @@ export default function App() {
   const [status, setStatus] = useState<string>('Соединение не активно');
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState<TunnelStats>({ is_active: false, total_tx: 0, total_rx: 0 });
-  const [diag, setDiag] = useState<TunnelDiagnostics | null>(null);
 
   const [profiles, setProfiles] = useState<SavedProfile[]>([]);
   const [activeProfileId, setActiveProfileId] = useState<string>('');
@@ -396,33 +363,21 @@ export default function App() {
 
     const poll = async () => {
       try {
-        const [statusRes, statsRes, diagRes] = await Promise.all([
+        const [statusRes, statsRes] = await Promise.all([
           invoke<TunnelStatus>('tunnel_get_status'),
           invoke<TunnelStats>('tunnel_get_stats'),
-          invoke<TunnelDiagnostics>('tunnel_get_diagnostics'),
         ]);
 
         if (!mounted) return;
 
         setStats(statsRes);
-        setDiag(diagRes);
         if (statusRes.is_active) {
           setPhase(prev => (prev === 'disconnecting' ? prev : 'connected'));
-          const phaseLabel = statusRes.phase ? String(statusRes.phase) : 'connected';
           setStatus(
-            `Активно (${phaseLabel})
-` +
-            `Адаптер: ${statusRes.adapter_name ?? '—'}
-` +
-            `Индекс интерфейса: ${statusRes.interface_index ?? '—'}
-` +
-            `MTU: ${statusRes.mtu ?? '—'}
-` +
-            `Handshake: ${statusRes.health?.handshake_ok ? 'OK' : 'ожидание'}
-` +
-            `Маршрут игры: ${statusRes.health?.game_path_verified ? 'верифицирован' : 'не подтверждён'}
-` +
-            `DNS: ${statusRes.health?.dns_ok ? 'OK' : 'проверить'}`
+            `Активно\n` +
+            `Адаптер: ${statusRes.adapter_name ?? '—'}\n` +
+            `Индекс интерфейса: ${statusRes.interface_index ?? '—'}\n` +
+            `MTU: ${statusRes.mtu ?? '—'}`
           );
         } else if (phaseRef.current !== 'disconnecting') {
           setPhase('idle');
@@ -537,21 +492,11 @@ export default function App() {
       });
 
       setPhase('connected');
-      const phaseLabel = result.phase ? String(result.phase) : 'connected';
       setStatus(
-        `Активно (${phaseLabel})
-` +
-        `Адаптер: ${result.adapter_name ?? form.name ?? 'GameAccelerator'}
-` +
-        `Индекс интерфейса: ${result.interface_index ?? '—'}
-` +
-        `MTU: ${result.mtu ?? '—'}
-` +
-        `Handshake: ${result.health?.handshake_ok ? 'OK' : 'ожидание'}
-` +
-        `Маршрут игры: ${result.health?.game_path_verified ? 'верифицирован' : 'не подтверждён'}
-` +
-        `DNS: ${result.health?.dns_ok ? 'OK' : 'проверить'}`
+        `Активно\n` +
+        `Адаптер: ${result.adapter_name ?? form.name ?? 'GameAccelerator'}\n` +
+        `Индекс интерфейса: ${result.interface_index ?? '—'}\n` +
+        `MTU: ${result.mtu ?? '—'}`
       );
     } catch (e) {
       setPhase('idle');
@@ -697,27 +642,6 @@ export default function App() {
                   <p style={styles.statLabel}>Состояние</p>
                   <p style={styles.statValue}>{stats.is_active ? 'UP' : 'DOWN'}</p>
                 </div>
-              </div>
-            </div>
-
-            <div style={styles.card}>
-              <p style={styles.cardTitle}>Диагностика пути</p>
-              <div style={styles.statGrid}>
-                <div style={styles.statBox}>
-                  <p style={styles.statLabel}>Handshake</p>
-                  <p style={styles.statValue}>{diag?.handshake_ok ? 'OK' : 'WAIT'}</p>
-                </div>
-                <div style={styles.statBox}>
-                  <p style={styles.statLabel}>Route</p>
-                  <p style={styles.statValue}>{diag?.route_health_ok ? 'OK' : 'BAD'}</p>
-                </div>
-                <div style={styles.statBox}>
-                  <p style={styles.statLabel}>Game Path</p>
-                  <p style={styles.statValue}>{diag?.game_path_verified ? 'VERIFIED' : '—'}</p>
-                </div>
-              </div>
-              <div style={{ ...styles.small, marginTop: 12 }}>
-                RTT: {diag?.avg_rtt_ms ?? 0} ms · Jitter: {diag?.jitter_ms ?? 0} ms · Loss: {(diag?.packet_loss_percent ?? 0).toFixed(2)}%
               </div>
             </div>
 
