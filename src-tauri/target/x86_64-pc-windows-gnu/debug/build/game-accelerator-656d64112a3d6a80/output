@@ -1,0 +1,14 @@
+cargo:rerun-if-changed=build.rs
+cargo:rerun-if-changed=src-tauri.manifest
+cargo:warning=Manifest dir: /workspaces/sd-wan-gaming-client/src-tauri
+cargo:warning=Target architecture: x86_64
+cargo:warning=Resources dir: /workspaces/sd-wan-gaming-client/src-tauri/resources
+cargo:warning=Checking wireguard.dll at /workspaces/sd-wan-gaming-client/src-tauri/sdk/wireguard-nt/bin/amd64/wireguard.dll
+cargo:warning=Checking wireguard.dll at /workspaces/sd-wan-gaming-client/src-tauri/sdk/wireguard-nt/amd64/wireguard.dll
+cargo:warning=Checking wireguard.dll at /workspaces/sd-wan-gaming-client/src-tauri/sdk/wireguard-nt/wireguard-nt/bin/amd64/wireguard.dll
+cargo:warning=wireguard.dll not found in SDK paths. It will be downloaded in CI.
+cargo:warning=Checking wintun.dll at /workspaces/sd-wan-gaming-client/src-tauri/sdk/wintun/bin/amd64/wintun.dll
+cargo:warning=Checking wintun.dll at /workspaces/sd-wan-gaming-client/src-tauri/sdk/wintun/amd64/wintun.dll
+cargo:warning=Checking wintun.dll at /workspaces/sd-wan-gaming-client/src-tauri/sdk/wintun/wintun/bin/amd64/wintun.dll
+cargo:warning=wintun.dll not found in SDK paths. It will be downloaded in CI.
+cargo:warning=build.rs completed successfully
