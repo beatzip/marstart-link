@@ -11,14 +11,17 @@ pub fn resolve_dll_path(handle: &AppHandle, dll_name: &str) -> Result<PathBuf, S
             return Ok(resource_path);
         }
     }
-    
+
     // 2. Fallback: 开发环境下的相对路径
     let dev_path = PathBuf::from("resources").join(dll_name);
     if dev_path.exists() {
         return Ok(dev_path);
     }
 
-    Err(format!("DLL {} not found in resources or dev path", dll_name))
+    Err(format!(
+        "DLL {} not found in resources or dev path",
+        dll_name
+    ))
 }
 
 pub fn parse_cidr(cidr: &str) -> Result<(std::net::IpAddr, u8), String> {

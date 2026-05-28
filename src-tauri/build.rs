@@ -8,19 +8,16 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=src-tauri.manifest");
 
-    let target_arch = env::var("CARGO_CFG_TARGET_ARCH")
-        .unwrap_or_else(|_| "x86_64".to_string());
+    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_else(|_| "x86_64".to_string());
 
-    let manifest_dir = PathBuf::from(
-        env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is not set"),
-    );
+    let manifest_dir =
+        PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is not set"));
 
     println!("cargo:warning=Manifest dir: {}", manifest_dir.display());
     println!("cargo:warning=Target architecture: {}", target_arch);
 
     let resources_dir = manifest_dir.join("resources");
-    fs::create_dir_all(&resources_dir)
-        .expect("Failed to create resources directory");
+    fs::create_dir_all(&resources_dir).expect("Failed to create resources directory");
 
     println!("cargo:warning=Resources dir: {}", resources_dir.display());
 
@@ -67,8 +64,7 @@ fn main() {
 
     let mut res = winres::WindowsResource::new();
     res.set_manifest_file("src-tauri.manifest");
-    res.compile()
-        .expect("Failed to compile Windows resources");
+    res.compile().expect("Failed to compile Windows resources");
 
     println!("cargo:warning=build.rs completed successfully");
 }
@@ -86,12 +82,7 @@ fn copy_dll_if_exists(
         if src.exists() {
             let dest = resources_dir.join(dll_name);
             fs::copy(&src, &dest).unwrap_or_else(|e| {
-                panic!(
-                    "Failed to copy {} from {}: {}",
-                    dll_name,
-                    src.display(),
-                    e
-                )
+                panic!("Failed to copy {} from {}: {}", dll_name, src.display(), e)
             });
             println!("cargo:warning=Copied {} from {}", dll_name, src.display());
             return;
