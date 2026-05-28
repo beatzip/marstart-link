@@ -65,10 +65,10 @@ fn main() {
     // Compile Windows resources only on Window
     #[cfg(target_os = "windows")]
     {
-    let mut res = winres::WindowsResource::new();
-    res.set_manifest_file("src-tauri.manifest");
-    res.compile().expect("Failed to compile Windows resources");
-}
+        let mut res = winres::WindowsResource::new();
+        res.set_manifest_file("src-tauri.manifest");
+        res.compile().expect("Failed to compile Windows resources");
+    }
 
     println!("cargo:warning=build.rs completed successfully");
 }
