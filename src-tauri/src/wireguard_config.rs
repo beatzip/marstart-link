@@ -20,6 +20,7 @@ pub const WIREGUARD_PEER_HAS_PERSISTENT_KEEPALIVE: WireguardPeerFlag = 1 << 2;
 pub const WIREGUARD_PEER_HAS_ENDPOINT: WireguardPeerFlag = 1 << 3;
 pub const WIREGUARD_PEER_REPLACE_ALLOWED_IPS: WireguardPeerFlag = 1 << 5;
 
+#[allow(dead_code)]
 pub type WireguardAllowedIpFlag = u32;
 pub const _WIREGUARD_ALLOWED_IP_REMOVE: WireguardAllowedIpFlag = 1 << 0;
 
@@ -62,7 +63,7 @@ pub struct WireguardInterface {
     pub private_key: [u8; 32],         // +6   32b
     pub public_key: [u8; 32],          // +38  32b
     pub peers_count: u32,              // +72  4b  (padding +2 before)
-                                       // total = 80 bytes
+                                        // total = 80 bytes
 }
 
 #[repr(C, align(8))]
@@ -79,7 +80,7 @@ pub struct WireguardPeer {
     pub rx_bytes: u64,           // +112  8b
     pub last_handshake: u64,     // +120  8b  Windows FILETIME
     pub allowed_ips_count: u32,  // +128  4b
-                                 // +132: 4b trailing padding → total = 136 bytes
+                                  // +132: 4b trailing padding → total = 136 bytes
 }
 
 #[repr(C)]
@@ -95,7 +96,7 @@ pub struct WireguardAllowedIp {
     pub address: WireguardIpAddress,    // +0   16b
     pub address_family: ADDRESS_FAMILY, // +16  2b
     pub cidr: u8,                       // +18  1b
-                                        // padding to 8 → total = 24 bytes
+                                         // padding to 8 → total = 24 bytes
 }
 
 // ============================================================================
