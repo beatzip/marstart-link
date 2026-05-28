@@ -861,7 +861,7 @@ fn best_route_interface_for(endpoint: SocketAddr) -> Result<u32, String> {
             None,
             0,
             None,
-            &dst as *const SOCKADDR_INET
+            &dst as *const SOCKADDR_INET,
             0,
             &mut best_route,
             &mut best_src,
@@ -948,7 +948,7 @@ fn add_full_tunnel_bypass_route(endpoint: SocketAddr) -> Result<MIB_IPFORWARD_RO
             None,
             0,
             None,
-            &dst as *const SOCKADDR_INET
+            &dst as *const SOCKADDR_INET,
             0,
             &mut best_route,
             &mut best_src,
