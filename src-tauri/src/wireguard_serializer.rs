@@ -94,7 +94,7 @@ pub fn serialize_config(config: &ParsedConfig) -> Result<Vec<u8>, String> {
                     },
                     AF_INET6,
               ),
-          };          
+          }          
                     
             let wg_ip = WireguardAllowedIp {
                 address,
@@ -102,7 +102,7 @@ pub fn serialize_config(config: &ParsedConfig) -> Result<Vec<u8>, String> {
                 cidr: aip.cidr,
             };
             write_struct(&wg_ip, &mut blob, &mut off);
-        }  
+н        }  
 
     debug_assert_eq!(off, total, "serializer produced unexpected size");
     Ok(blob)
