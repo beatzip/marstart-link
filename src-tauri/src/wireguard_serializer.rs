@@ -71,34 +71,30 @@ pub fn serialize_config(config: &ParsedConfig) -> Result<Vec<u8>, String> {
 
         // ── AllowedIPs ─────────────────────────────────────────────────────
         for aip in &peer.allowed_ips {
-            // ✅ FIX: from_ne_bytes preserves network byte order in memory.
             //   from_be_bytes was causing REVERSED IP bytes → wrong routes.
             let (address, address_family) = match aip.address {
-                IpAddr::V4(v4) => {
-                    let mut addr: WireguardIpAddress = unsafe { std::mem::zeroed() };
-                    // ✅ from_ne_bytes (NOT from_be_bytes)
-                    unsafe {
-                        addr.v4 = IN_ADDR {
+                IpAddr::V4(v4) => (
+                    WireguardIpAddress {
+                        v4: IN_ADDR {
                             S_un: IN_ADDR_0 {
                                 S_addr: u32::from_ne_bytes(v4.octets()),
                             },
                         };
                     }
-                    (addr, AF_INET)
-                }
+                    AF_INET,
+                ),
                 IpAddr::V6(v6) => {
-                    let mut addr: WireguardIpAddress = unsafe { std::mem::zeroed() };
-                    unsafe {
-                        addr.v6 = IN6_ADDR {
+                    WireguardIpAddress {
+                        v6: IN6_ADDR {
                             u: windows::Win32::Networking::WinSock::IN6_ADDR_0 {
                                 Byte: v6.octets(),
                             },
                         };
                     }
-                    (addr, AF_INET6)
-                }
-            };
-
+                    AF_INET6,
+                    ),
+          };          
+                    
             let wg_ip = WireguardAllowedIp {
                 address,
                 address_family,
