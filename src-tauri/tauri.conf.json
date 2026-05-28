@@ -36,10 +36,15 @@
       "resources": [
         "resources/wireguard.dll",
         "resources/wintun.dll"
-      ]
+      ],
+      "windows": {
+        "webviewInstallMode": {
+          "type": "embedBootstrapper"
+        }
+      }
     },
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost https://ipc.localhost; img-src 'self' data: asset: https://asset.localhost; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-eval'"
+      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost https://ipc.localhost ; img-src 'self' data: asset: https://asset.localhost ; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-eval'"
     },
     "windows": [
       {
