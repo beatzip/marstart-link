@@ -9,8 +9,8 @@ use std::ffi::c_void;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::os::windows::ffi::OsStrExt;
 use std::process::Command;
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use libloading::os::windows::{Library, LOAD_WITH_ALTERED_SEARCH_PATH};
@@ -19,10 +19,10 @@ use tauri::State;
 use windows::Win32::NetworkManagement::IpHelper::{
     ConvertInterfaceLuidToIndex, CreateIpForwardEntry2, CreateUnicastIpAddressEntry,
     DeleteIpForwardEntry2, DeleteUnicastIpAddressEntry, GetBestRoute2, GetIfEntry2,
-    GetIpForwardEntry2, GetIpInterfaceEntry, GetUnicastIpAddressEntry,
-    InitializeIpForwardEntry, InitializeIpInterfaceEntry, InitializeUnicastIpAddressEntry,
-    MIB_IF_ROW2, MIB_IPFORWARD_ROW2, MIB_IPINTERFACE_ROW, MIB_UNICASTIPADDRESS_ROW,
-    SetIpForwardEntry2, SetIpInterfaceEntry, SetUnicastIpAddressEntry,
+    GetIpForwardEntry2, GetIpInterfaceEntry, GetUnicastIpAddressEntry, InitializeIpForwardEntry,
+    InitializeIpInterfaceEntry, InitializeUnicastIpAddressEntry, SetIpForwardEntry2,
+    SetIpInterfaceEntry, SetUnicastIpAddressEntry, MIB_IF_ROW2, MIB_IPFORWARD_ROW2,
+    MIB_IPINTERFACE_ROW, MIB_UNICASTIPADDRESS_ROW,
 };
 use windows::Win32::NetworkManagement::Ndis::{IfOperStatusUp, NET_LUID_LH};
 use windows::Win32::Networking::WinSock::{AF_INET, AF_INET6, SOCKADDR_INET};
@@ -49,7 +49,7 @@ unsafe impl Sync for WireGuardAdapterHandle {}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WireGuardAdapterState {
     Down = 0,
-    Up   = 1,
+    Up = 1,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -63,7 +63,9 @@ pub enum TunnelPhase {
 }
 
 impl Default for TunnelPhase {
-    fn default() -> Self { Self::Idle }
+    fn default() -> Self {
+        Self::Idle
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -84,38 +86,47 @@ pub struct TunnelHealth {
 // FFI Type Aliases
 // ============================================================================
 type WireGuardCreateAdapterFn = unsafe extern "system" fn(
-    name: *const u16, tunnel_type: *const u16, requested_guid: *const c_void,
+    name: *const u16,
+    tunnel_type: *const u16,
+    requested_guid: *const c_void,
 ) -> *mut c_void;
-type WireGuardCloseAdapterFn    = unsafe extern "system" fn(adapter: *mut c_void);
-type WireGuardSetStateFn        = unsafe extern "system" fn(adapter: *mut c_void, state: WireGuardAdapterState) -> i32;
-type WireGuardGetAdapterLuidFn  = unsafe extern "system" fn(adapter: *mut c_void, luid: *mut NET_LUID_LH);
-type WireGuardSetConfigurationFn = unsafe extern "system" fn(adapter: *mut c_void, bytes: *const u8, size: u32) -> i32;
-type WireGuardGetConfigurationFn = unsafe extern "system" fn(adapter: *mut c_void, bytes: *mut u8, size: *mut u32) -> i32;
+type WireGuardCloseAdapterFn = unsafe extern "system" fn(adapter: *mut c_void);
+type WireGuardSetStateFn =
+    unsafe extern "system" fn(adapter: *mut c_void, state: WireGuardAdapterState) -> i32;
+type WireGuardGetAdapterLuidFn =
+    unsafe extern "system" fn(adapter: *mut c_void, luid: *mut NET_LUID_LH);
+type WireGuardSetConfigurationFn =
+    unsafe extern "system" fn(adapter: *mut c_void, bytes: *const u8, size: u32) -> i32;
+type WireGuardGetConfigurationFn =
+    unsafe extern "system" fn(adapter: *mut c_void, bytes: *mut u8, size: *mut u32) -> i32;
 
 // ============================================================================
 // Runtime cleanup state
 // ============================================================================
 #[derive(Debug, Clone)]
-struct AssignedAddress { ip: IpAddr, prefix: u8 }
+struct AssignedAddress {
+    ip: IpAddr,
+    prefix: u8,
+}
 
 struct TunnelRuntime {
-    interface_index:  u32,
+    interface_index: u32,
     assigned_address: Option<AssignedAddress>,
-    dns_servers:      Vec<String>,
+    dns_servers: Vec<String>,
     primary_endpoint: Option<SocketAddr>,
     /// Маршруты, созданные нами — удаляем при disconnect
-    created_routes:   Vec<MIB_IPFORWARD_ROW2>,
+    created_routes: Vec<MIB_IPFORWARD_ROW2>,
 }
 
 // ============================================================================
 // WireGuard DLL Wrapper
 // ============================================================================
 pub struct WireGuardDll {
-    _lib:                 Library,
-    create_adapter_fn:    WireGuardCreateAdapterFn,
-    close_adapter_fn:     WireGuardCloseAdapterFn,
-    set_state_fn:         WireGuardSetStateFn,
-    get_adapter_luid_fn:  WireGuardGetAdapterLuidFn,
+    _lib: Library,
+    create_adapter_fn: WireGuardCreateAdapterFn,
+    close_adapter_fn: WireGuardCloseAdapterFn,
+    set_state_fn: WireGuardSetStateFn,
+    get_adapter_luid_fn: WireGuardGetAdapterLuidFn,
     set_configuration_fn: WireGuardSetConfigurationFn,
     get_configuration_fn: WireGuardGetConfigurationFn,
 }
@@ -123,23 +134,24 @@ pub struct WireGuardDll {
 impl WireGuardDll {
     pub fn load(path: &str) -> Result<Self, String> {
         unsafe {
-            let lib = Library::load_with_flags(path, LOAD_WITH_ALTERED_SEARCH_PATH)
-                .map_err(|e| {
+            let lib =
+                Library::load_with_flags(path, LOAD_WITH_ALTERED_SEARCH_PATH).map_err(|e| {
                     let os = std::io::Error::last_os_error().raw_os_error().unwrap_or(-1);
                     format!("LoadLibraryExW failed for \"{path}\": {e} (OS error {os})")
                 })?;
 
             macro_rules! sym {
                 ($name:expr) => {
-                    *lib.get($name).map_err(|e| format!("Symbol {:?} not found: {e}", $name))?
+                    *lib.get($name)
+                        .map_err(|e| format!("Symbol {:?} not found: {e}", $name))?
                 };
             }
 
             Ok(Self {
-                create_adapter_fn:    sym!(b"WireGuardCreateAdapter"),
-                close_adapter_fn:     sym!(b"WireGuardCloseAdapter"),
-                set_state_fn:         sym!(b"WireGuardSetAdapterState"),
-                get_adapter_luid_fn:  sym!(b"WireGuardGetAdapterLUID"),
+                create_adapter_fn: sym!(b"WireGuardCreateAdapter"),
+                close_adapter_fn: sym!(b"WireGuardCloseAdapter"),
+                set_state_fn: sym!(b"WireGuardSetAdapterState"),
+                get_adapter_luid_fn: sym!(b"WireGuardGetAdapterLUID"),
                 set_configuration_fn: sym!(b"WireGuardSetConfiguration"),
                 get_configuration_fn: sym!(b"WireGuardGetConfiguration"),
                 _lib: lib,
@@ -147,12 +159,26 @@ impl WireGuardDll {
         }
     }
 
-    pub fn create_adapter(&self, name: &str, tunnel_type: &str) -> Result<WireGuardAdapterHandle, String> {
-        let name_w: Vec<u16> = std::ffi::OsStr::new(name).encode_wide().chain(Some(0)).collect();
-        let type_w: Vec<u16> = std::ffi::OsStr::new(tunnel_type).encode_wide().chain(Some(0)).collect();
-        let handle = unsafe { (self.create_adapter_fn)(name_w.as_ptr(), type_w.as_ptr(), std::ptr::null()) };
+    pub fn create_adapter(
+        &self,
+        name: &str,
+        tunnel_type: &str,
+    ) -> Result<WireGuardAdapterHandle, String> {
+        let name_w: Vec<u16> = std::ffi::OsStr::new(name)
+            .encode_wide()
+            .chain(Some(0))
+            .collect();
+        let type_w: Vec<u16> = std::ffi::OsStr::new(tunnel_type)
+            .encode_wide()
+            .chain(Some(0))
+            .collect();
+        let handle =
+            unsafe { (self.create_adapter_fn)(name_w.as_ptr(), type_w.as_ptr(), std::ptr::null()) };
         if handle.is_null() {
-            Err(format!("WireGuardCreateAdapter returned NULL for \"{}\"", name))
+            Err(format!(
+                "WireGuardCreateAdapter returned NULL for \"{}\"",
+                name
+            ))
         } else {
             Ok(WireGuardAdapterHandle(handle))
         }
@@ -162,9 +188,17 @@ impl WireGuardDll {
         unsafe { (self.close_adapter_fn)(h.0) }
     }
 
-    pub fn set_state(&self, h: WireGuardAdapterHandle, s: WireGuardAdapterState) -> Result<(), String> {
+    pub fn set_state(
+        &self,
+        h: WireGuardAdapterHandle,
+        s: WireGuardAdapterState,
+    ) -> Result<(), String> {
         let ok = unsafe { (self.set_state_fn)(h.0, s) };
-        if ok == 0 { Err(format!("WireGuardSetAdapterState({s:?}) failed")) } else { Ok(()) }
+        if ok == 0 {
+            Err(format!("WireGuardSetAdapterState({s:?}) failed"))
+        } else {
+            Ok(())
+        }
     }
 
     pub fn get_adapter_luid(&self, h: WireGuardAdapterHandle) -> NET_LUID_LH {
@@ -175,17 +209,25 @@ impl WireGuardDll {
 
     pub fn set_configuration(&self, h: WireGuardAdapterHandle, bytes: &[u8]) -> Result<(), String> {
         let ok = unsafe { (self.set_configuration_fn)(h.0, bytes.as_ptr(), bytes.len() as u32) };
-        if ok == 0 { Err("WireGuardSetConfiguration failed".into()) } else { Ok(()) }
+        if ok == 0 {
+            Err("WireGuardSetConfiguration failed".into())
+        } else {
+            Ok(())
+        }
     }
 
     pub fn get_configuration(&self, h: WireGuardAdapterHandle) -> Result<Vec<u8>, String> {
         unsafe {
             let mut size: u32 = 0;
             (self.get_configuration_fn)(h.0, std::ptr::null_mut(), &mut size);
-            if size == 0 { return Err("GetConfiguration: size query returned 0".into()); }
+            if size == 0 {
+                return Err("GetConfiguration: size query returned 0".into());
+            }
             let mut buf = vec![0u8; size as usize];
             let ok = (self.get_configuration_fn)(h.0, buf.as_mut_ptr(), &mut size);
-            if ok == 0 { return Err("GetConfiguration: read failed".into()); }
+            if ok == 0 {
+                return Err("GetConfiguration: read failed".into());
+            }
             buf.truncate(size as usize);
             Ok(buf)
         }
@@ -196,10 +238,10 @@ impl WireGuardDll {
 // Tunnel State
 // ============================================================================
 pub struct TunnelState {
-    pub dll:     Arc<WireGuardDll>,
+    pub dll: Arc<WireGuardDll>,
     pub adapter: Arc<Mutex<Option<WireGuardAdapterHandle>>>,
-    runtime:     Arc<Mutex<Option<TunnelRuntime>>>,
-    pub status:  Arc<Mutex<TunnelStatus>>,
+    runtime: Arc<Mutex<Option<TunnelRuntime>>>,
+    pub status: Arc<Mutex<TunnelStatus>>,
     pub session_id: Arc<AtomicU64>,
 }
 
@@ -214,16 +256,25 @@ impl TunnelState {
         }
     }
 
-    pub fn clone_for_panic_hook(&self) -> (Arc<WireGuardDll>, Arc<Mutex<Option<WireGuardAdapterHandle>>>) {
+    pub fn clone_for_panic_hook(
+        &self,
+    ) -> (
+        Arc<WireGuardDll>,
+        Arc<Mutex<Option<WireGuardAdapterHandle>>>,
+    ) {
         (self.dll.clone(), self.adapter.clone())
     }
 
     pub fn begin_session(&self) -> u64 {
-        self.session_id.fetch_add(1, Ordering::SeqCst).wrapping_add(1)
+        self.session_id
+            .fetch_add(1, Ordering::SeqCst)
+            .wrapping_add(1)
     }
 
     pub fn invalidate_session(&self) -> u64 {
-        self.session_id.fetch_add(1, Ordering::SeqCst).wrapping_add(1)
+        self.session_id
+            .fetch_add(1, Ordering::SeqCst)
+            .wrapping_add(1)
     }
 
     pub fn current_session(&self) -> u64 {
@@ -236,23 +287,23 @@ impl TunnelState {
 // ============================================================================
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct TunnelStatus {
-    pub is_active:        bool,
-    pub adapter_name:     Option<String>,
-    pub interface_index:  Option<u32>,
-    pub mtu:              Option<u32>,
+    pub is_active: bool,
+    pub adapter_name: Option<String>,
+    pub interface_index: Option<u32>,
+    pub mtu: Option<u32>,
     pub assigned_address: Option<String>,
-    pub dns_servers:      Vec<String>,
-    pub phase:            TunnelPhase,
-    pub session_id:       u64,
-    pub health:           TunnelHealth,
+    pub dns_servers: Vec<String>,
+    pub phase: TunnelPhase,
+    pub session_id: u64,
+    pub health: TunnelHealth,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct TunnelStats {
-    pub is_active:           bool,
-    pub total_tx:            u64,
-    pub total_rx:            u64,
-    pub last_handshake_unix: u64,  // 0 = нет хэндшейка
+    pub is_active: bool,
+    pub total_tx: u64,
+    pub total_rx: u64,
+    pub last_handshake_unix: u64, // 0 = нет хэндшейка
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -278,14 +329,21 @@ pub struct TunnelDiagnostics {
 // ============================================================================
 #[tauri::command]
 pub async fn tunnel_get_status(state: State<'_, TunnelState>) -> Result<TunnelStatus, String> {
-    Ok(state.status.lock().unwrap_or_else(|p| p.into_inner()).clone())
+    Ok(state
+        .status
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone())
 }
 
 #[tauri::command]
 pub async fn tunnel_get_stats(state: State<'_, TunnelState>) -> Result<TunnelStats, String> {
     let handle = {
         let guard = state.adapter.lock().unwrap_or_else(|p| p.into_inner());
-        match *guard { Some(h) => h, None => return Ok(TunnelStats::default()) }
+        match *guard {
+            Some(h) => h,
+            None => return Ok(TunnelStats::default()),
+        }
     };
 
     let buf = state.dll.get_configuration(handle)?;
@@ -309,12 +367,23 @@ pub async fn tunnel_get_stats(state: State<'_, TunnelState>) -> Result<TunnelSta
         status.is_active
     };
 
-    Ok(TunnelStats { is_active, total_tx, total_rx, last_handshake_unix: last_handshake })
+    Ok(TunnelStats {
+        is_active,
+        total_tx,
+        total_rx,
+        last_handshake_unix: last_handshake,
+    })
 }
 
 #[tauri::command]
-pub async fn tunnel_get_diagnostics(state: State<'_, TunnelState>) -> Result<TunnelDiagnostics, String> {
-    let status = state.status.lock().unwrap_or_else(|p| p.into_inner()).clone();
+pub async fn tunnel_get_diagnostics(
+    state: State<'_, TunnelState>,
+) -> Result<TunnelDiagnostics, String> {
+    let status = state
+        .status
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone();
 
     let (runtime_endpoint, runtime_interface_index) = {
         let guard = state.runtime.lock().unwrap_or_else(|p| p.into_inner());
@@ -352,7 +421,8 @@ pub async fn tunnel_get_diagnostics(state: State<'_, TunnelState>) -> Result<Tun
 
             if latest_handshake > 0 {
                 diag.handshake_ok = true;
-                diag.handshake_age_secs = Some(current_unix_secs().saturating_sub(latest_handshake));
+                diag.handshake_age_secs =
+                    Some(current_unix_secs().saturating_sub(latest_handshake));
             }
         }
     }
@@ -379,9 +449,9 @@ pub async fn tunnel_get_diagnostics(state: State<'_, TunnelState>) -> Result<Tun
 
 #[tauri::command]
 pub async fn tunnel_apply_config(
-    state:           State<'_, TunnelState>,
-    config_content:  String,
-    adapter_name:    String,
+    state: State<'_, TunnelState>,
+    config_content: String,
+    adapter_name: String,
     expected_routes: Vec<String>,
 ) -> Result<TunnelStatus, String> {
     state.invalidate_session();
@@ -429,10 +499,13 @@ pub async fn tunnel_apply_config(
         }
         tracing::info!("WireGuard configuration applied");
 
-        let luid   = state.dll.get_adapter_luid(handle);
+        let luid = state.dll.get_adapter_luid(handle);
         let if_idx = match luid_to_index(luid) {
             Ok(i) => i,
-            Err(e) => { state.dll.close_adapter(handle); return Err(e); }
+            Err(e) => {
+                state.dll.close_adapter(handle);
+                return Err(e);
+            }
         };
 
         if let Err(e) = state.dll.set_state(handle, WireGuardAdapterState::Up) {
@@ -448,7 +521,12 @@ pub async fn tunnel_apply_config(
 
     // ── Helper: emergency teardown ──────────────────────────────────────────
     let do_emergency_teardown = |msg: String| -> String {
-        if let Some(mut rt) = state.runtime.lock().unwrap_or_else(|p| p.into_inner()).take() {
+        if let Some(mut rt) = state
+            .runtime
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .take()
+        {
             cleanup_runtime(&state.dll, &mut rt);
         }
 
@@ -478,16 +556,17 @@ pub async fn tunnel_apply_config(
 
     // ── 5. Full-tunnel bypass route (MUST come before injecting 0.0.0.0/0) ─
     let mut runtime = TunnelRuntime {
-        interface_index:  if_idx,
+        interface_index: if_idx,
         assigned_address: None,
-        dns_servers:      vec![],
+        dns_servers: vec![],
         primary_endpoint: parsed.peers.first().and_then(|peer| peer.endpoint),
-        created_routes:   vec![],
+        created_routes: vec![],
     };
 
     let has_half1 = expected_routes.iter().any(|r| r == "0.0.0.0/1");
     let has_half2 = expected_routes.iter().any(|r| r == "128.0.0.0/1");
-    let is_full_tunnel = expected_routes.iter().any(|r| r == "0.0.0.0/0") || (has_half1 && has_half2);
+    let is_full_tunnel =
+        expected_routes.iter().any(|r| r == "0.0.0.0/0") || (has_half1 && has_half2);
     if is_full_tunnel {
         if let Some(peer) = parsed.peers.first() {
             if let Some(endpoint) = peer.endpoint {
@@ -508,7 +587,12 @@ pub async fn tunnel_apply_config(
             Ok(_) => {
                 tracing::info!("Assigned IP {ip}/{prefix} to interface");
                 runtime.assigned_address = Some(AssignedAddress { ip, prefix });
-                state.status.lock().unwrap_or_else(|p| p.into_inner()).health.adapter_ok = true;
+                state
+                    .status
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .health
+                    .adapter_ok = true;
             }
             Err(e) => {
                 cleanup_runtime(&state.dll, &mut runtime);
@@ -529,9 +613,19 @@ pub async fn tunnel_apply_config(
     // ── 8. Inject routes ─────────────────────────────────────────────────
     if let Err(e) = inject_routes(if_idx, &expected_routes, &mut runtime.created_routes) {
         tracing::warn!("Route injection partial failure (non-fatal): {e}");
-        state.status.lock().unwrap_or_else(|p| p.into_inner()).health.routes_ok = false;
+        state
+            .status
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .health
+            .routes_ok = false;
     } else {
-        state.status.lock().unwrap_or_else(|p| p.into_inner()).health.routes_ok = true;
+        state
+            .status
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .health
+            .routes_ok = true;
     }
 
     // ── 9. DNS ──────────────────────────────────────────────────────────
@@ -540,12 +634,22 @@ pub async fn tunnel_apply_config(
             Ok(_) => {
                 tracing::info!("DNS set: {:?}", parsed.dns_servers);
                 runtime.dns_servers = parsed.dns_servers.clone();
-                state.status.lock().unwrap_or_else(|p| p.into_inner()).health.dns_ok = true;
+                state
+                    .status
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .health
+                    .dns_ok = true;
             }
             Err(e) => {
                 tracing::warn!("DNS set failed (non-fatal): {e}");
-                state.status.lock().unwrap_or_else(|p| p.into_inner()).health.dns_ok = false;
-            },
+                state
+                    .status
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .health
+                    .dns_ok = false;
+            }
         }
     }
 
@@ -553,16 +657,23 @@ pub async fn tunnel_apply_config(
     *state.runtime.lock().unwrap_or_else(|p| p.into_inner()) = Some(runtime);
 
     // ── 11. Update status ─────────────────────────────────────────────────
-    let health = state.status.lock().unwrap_or_else(|p| p.into_inner()).health.clone();
+    let health = state
+        .status
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .health
+        .clone();
     let status = TunnelStatus {
-        is_active:        true,
-        adapter_name:     Some(adapter_name.clone()),
-        interface_index:  Some(if_idx),
-        mtu:              Some(WG_INTERFACE_MTU),
-        assigned_address: parsed.interface_address.zip(parsed.interface_prefix)
+        is_active: true,
+        adapter_name: Some(adapter_name.clone()),
+        interface_index: Some(if_idx),
+        mtu: Some(WG_INTERFACE_MTU),
+        assigned_address: parsed
+            .interface_address
+            .zip(parsed.interface_prefix)
             .map(|(ip, p)| format!("{ip}/{p}")),
-        dns_servers:      parsed.dns_servers.clone(),
-        phase:            TunnelPhase::WaitingHandshake,
+        dns_servers: parsed.dns_servers.clone(),
+        phase: TunnelPhase::WaitingHandshake,
         session_id,
         health,
     };
@@ -574,8 +685,17 @@ pub async fn tunnel_apply_config(
     let status_arc = state.status.clone();
     let session_guard = state.session_id.clone();
     tokio::spawn(async move {
-        match wait_for_handshake(dll, adapter, session_guard, session_id, handle, Duration::from_secs(30)).await {
-            Ok(ts)  => {
+        match wait_for_handshake(
+            dll,
+            adapter,
+            session_guard,
+            session_id,
+            handle,
+            Duration::from_secs(30),
+        )
+        .await
+        {
+            Ok(ts) => {
                 tracing::info!("WireGuard handshake at unix={ts}");
                 if session_guard.load(Ordering::SeqCst) == session_id {
                     let mut status = status_arc.lock().unwrap_or_else(|p| p.into_inner());
@@ -583,7 +703,7 @@ pub async fn tunnel_apply_config(
                     status.health.handshake_ok = true;
                 }
             }
-            Err(e)  => tracing::warn!("Handshake timeout/error: {e}"),
+            Err(e) => tracing::warn!("Handshake timeout/error: {e}"),
         }
     });
 
@@ -600,7 +720,12 @@ pub async fn tunnel_disconnect(state: State<'_, TunnelState>) -> Result<(), Stri
     }
 
     // Cleanup routes, DNS, IP address
-    if let Some(mut rt) = state.runtime.lock().unwrap_or_else(|p| p.into_inner()).take() {
+    if let Some(mut rt) = state
+        .runtime
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .take()
+    {
         cleanup_runtime(&state.dll, &mut rt);
     }
 
@@ -624,7 +749,7 @@ pub async fn tunnel_disconnect(state: State<'_, TunnelState>) -> Result<(), Stri
 // Panic hook
 // ============================================================================
 pub fn setup_panic_hook(
-    dll:     Arc<WireGuardDll>,
+    dll: Arc<WireGuardDll>,
     adapter: Arc<Mutex<Option<WireGuardAdapterHandle>>>,
 ) {
     let default = std::panic::take_hook();
@@ -653,7 +778,7 @@ fn luid_to_index(luid: NET_LUID_LH) -> Result<u32, String> {
 }
 
 async fn wait_for_interface_up(if_idx: u32, timeout: Duration) -> Result<(), String> {
-    let start    = Instant::now();
+    let start = Instant::now();
     let mut wait = 100u64;
     while start.elapsed() < timeout {
         let up = unsafe {
@@ -661,23 +786,28 @@ async fn wait_for_interface_up(if_idx: u32, timeout: Duration) -> Result<(), Str
             row.InterfaceIndex = if_idx;
             GetIfEntry2(&mut row).is_ok() && row.OperStatus == IfOperStatusUp
         };
-        if up { return Ok(()); }
+        if up {
+            return Ok(());
+        }
         tokio::time::sleep(Duration::from_millis(wait)).await;
         wait = (wait * 2).min(500);
     }
-    Err(format!("Interface {if_idx} did not come up within {}s", timeout.as_secs()))
+    Err(format!(
+        "Interface {if_idx} did not come up within {}s",
+        timeout.as_secs()
+    ))
 }
 
 /// ASYNC handshake wait — не блокирует Tokio runtime
 async fn wait_for_handshake(
-    dll:     Arc<WireGuardDll>,
+    dll: Arc<WireGuardDll>,
     adapter: Arc<Mutex<Option<WireGuardAdapterHandle>>>,
     session_guard: Arc<AtomicU64>,
     session_id: u64,
-    handle:  WireGuardAdapterHandle,
+    handle: WireGuardAdapterHandle,
     timeout: Duration,
 ) -> Result<u64, String> {
-    let start    = Instant::now();
+    let start = Instant::now();
     let mut wait = 250u64;
     while start.elapsed() < timeout {
         if session_guard.load(Ordering::SeqCst) != session_id {
@@ -705,8 +835,6 @@ async fn wait_for_handshake(
     }
     Err("No handshake within timeout".into())
 }
-
-
 
 fn current_unix_secs() -> u64 {
     std::time::SystemTime::now()
@@ -762,10 +890,10 @@ fn assign_interface_address(if_idx: u32, ip: IpAddr, prefix: u8) -> Result<(), S
     unsafe {
         let mut row: MIB_UNICASTIPADDRESS_ROW = std::mem::zeroed();
         InitializeUnicastIpAddressEntry(&mut row);
-        row.InterfaceIndex       = if_idx;
-        row.Address              = sockaddr;
-        row.OnLinkPrefixLength   = prefix;
-        row.SkipAsSource         = false.into();
+        row.InterfaceIndex = if_idx;
+        row.Address = sockaddr;
+        row.OnLinkPrefixLength = prefix;
+        row.SkipAsSource = false.into();
 
         match CreateUnicastIpAddressEntry(&row) {
             Ok(_) => Ok(()),
@@ -774,7 +902,7 @@ fn assign_interface_address(if_idx: u32, ip: IpAddr, prefix: u8) -> Result<(), S
                 let mut existing: MIB_UNICASTIPADDRESS_ROW = std::mem::zeroed();
                 InitializeUnicastIpAddressEntry(&mut existing);
                 existing.InterfaceIndex = if_idx;
-                existing.Address        = sockaddr;
+                existing.Address = sockaddr;
                 if GetUnicastIpAddressEntry(&mut existing).is_ok() {
                     existing.OnLinkPrefixLength = prefix;
                     SetUnicastIpAddressEntry(&existing)
@@ -792,8 +920,8 @@ fn remove_interface_address(if_idx: u32, ip: IpAddr, prefix: u8) {
     unsafe {
         let mut row: MIB_UNICASTIPADDRESS_ROW = std::mem::zeroed();
         InitializeUnicastIpAddressEntry(&mut row);
-        row.InterfaceIndex     = if_idx;
-        row.Address            = sockaddr;
+        row.InterfaceIndex = if_idx;
+        row.Address = sockaddr;
         row.OnLinkPrefixLength = prefix;
         let _ = DeleteUnicastIpAddressEntry(&row);
     }
@@ -805,7 +933,7 @@ fn remove_interface_address(if_idx: u32, ip: IpAddr, prefix: u8) {
 fn add_full_tunnel_bypass_route(endpoint: SocketAddr) -> Result<MIB_IPFORWARD_ROW2, String> {
     let endpoint_ipv4 = match endpoint.ip() {
         IpAddr::V4(v4) => v4,
-        IpAddr::V6(_)  => return Err("IPv6 endpoint bypass not implemented".into()),
+        IpAddr::V6(_) => return Err("IPv6 endpoint bypass not implemented".into()),
     };
 
     unsafe {
@@ -850,7 +978,8 @@ fn add_full_tunnel_bypass_route(endpoint: SocketAddr) -> Result<MIB_IPFORWARD_RO
 
         tracing::info!(
             "Bypass host route added: {}/32 via gateway_if={}",
-            endpoint_ipv4, bypass.InterfaceIndex
+            endpoint_ipv4,
+            bypass.InterfaceIndex
         );
 
         Ok(bypass)
@@ -858,16 +987,18 @@ fn add_full_tunnel_bypass_route(endpoint: SocketAddr) -> Result<MIB_IPFORWARD_RO
 }
 
 fn inject_routes(
-    if_idx:          u32,
-    cidrs:           &[String],
-    created_routes:  &mut Vec<MIB_IPFORWARD_ROW2>,
+    if_idx: u32,
+    cidrs: &[String],
+    created_routes: &mut Vec<MIB_IPFORWARD_ROW2>,
 ) -> Result<(), String> {
     if cidrs.len() > 50 {
         return Err("Too many routes (max 50)".into());
     }
 
     for cidr in cidrs {
-        let Ok((ip, prefix)) = parse_cidr(cidr) else { continue };
+        let Ok((ip, prefix)) = parse_cidr(cidr) else {
+            continue;
+        };
         let IpAddr::V4(ipv4) = ip else { continue };
 
         let row = unsafe { create_forward_row(ipv4, prefix, if_idx) };
@@ -898,27 +1029,41 @@ fn inject_routes(
 
 fn delete_created_routes(routes: &[MIB_IPFORWARD_ROW2]) {
     for row in routes {
-        unsafe { let _ = DeleteIpForwardEntry2(row); }
+        unsafe {
+            let _ = DeleteIpForwardEntry2(row);
+        }
     }
 }
 
 fn run_powershell(script: &str) -> Result<(), String> {
     let out = Command::new("powershell.exe")
-        .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command"])
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+        ])
         .arg(script)
         .output()
         .map_err(|e| format!("PowerShell launch failed: {e}"))?;
-    if out.status.success() { Ok(()) } else {
+    if out.status.success() {
+        Ok(())
+    } else {
         let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
         Err(format!("PowerShell failed: {err}"))
     }
 }
 
 fn apply_dns_servers(if_idx: u32, servers: &[String]) -> Result<(), String> {
-    if servers.is_empty() { return Ok(()); }
-    let quoted = servers.iter()
+    if servers.is_empty() {
+        return Ok(());
+    }
+    let quoted = servers
+        .iter()
         .map(|s| format!("'{}'", s.replace('\'', "''")))
-        .collect::<Vec<_>>().join(",");
+        .collect::<Vec<_>>()
+        .join(",");
     run_powershell(&format!(
         "Set-DnsClientServerAddress -InterfaceIndex {if_idx} -ServerAddresses @({quoted})"
     ))

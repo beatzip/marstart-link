@@ -6,11 +6,11 @@
 // ============================================================================
 // MODULES
 // ============================================================================
+mod utils;
 mod wireguard;
 mod wireguard_config;
 mod wireguard_parser;
 mod wireguard_serializer;
-mod utils;
 
 use std::sync::Arc;
 
@@ -29,10 +29,7 @@ fn main() {
     setup_logging();
 
     if let Err(e) = run_app() {
-        show_error_dialog(&format!(
-            "Failed to start Game Accelerator:\n\n{}",
-            e
-        ));
+        show_error_dialog(&format!("Failed to start Game Accelerator:\n\n{}", e));
         std::process::exit(1);
     }
 }
@@ -49,11 +46,9 @@ fn setup_logging() {
 
     let file_appender = rolling::daily(&log_dir, "app.log");
 
-    let (non_blocking, _guard) =
-        tracing_appender::non_blocking(file_appender);
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
-    let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info"));
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
     tracing_subscriber::registry()
         .with(env_filter)
@@ -84,9 +79,7 @@ fn run_app() -> Result<(), Box<dyn std::error::Error>> {
 
             tracing::info!("WireGuard DLL path: {:?}", dll_path);
 
-            let dll_path_str = dll_path
-                .to_str()
-                .ok_or("Invalid DLL path encoding")?;
+            let dll_path_str = dll_path.to_str().ok_or("Invalid DLL path encoding")?;
 
             // ----------------------------------------------------------------
             // Load DLL
@@ -106,13 +99,9 @@ fn run_app() -> Result<(), Box<dyn std::error::Error>> {
             // ----------------------------------------------------------------
             // Setup panic hook
             // ----------------------------------------------------------------
-            let (dll_for_hook, adapter_for_hook) =
-                tunnel_state.clone_for_panic_hook();
+            let (dll_for_hook, adapter_for_hook) = tunnel_state.clone_for_panic_hook();
 
-            wireguard::setup_panic_hook(
-                dll_for_hook,
-                adapter_for_hook,
-            );
+            wireguard::setup_panic_hook(dll_for_hook, adapter_for_hook);
 
             // ----------------------------------------------------------------
             // Register global state
@@ -123,7 +112,6 @@ fn run_app() -> Result<(), Box<dyn std::error::Error>> {
 
             Ok(())
         })
-
         // ====================================================================
         // IPC COMMANDS
         // ====================================================================
@@ -134,7 +122,6 @@ fn run_app() -> Result<(), Box<dyn std::error::Error>> {
             wireguard::tunnel_get_stats,
             wireguard::tunnel_get_diagnostics,
         ])
-
         // ====================================================================
         // RUN
         // ====================================================================
@@ -154,22 +141,14 @@ fn show_error_dialog(message: &str) {
         use std::os::windows::ffi::OsStrExt;
 
         use windows::core::PCWSTR;
-        use windows::Win32::UI::WindowsAndMessaging::{
-            MessageBoxW,
-            MB_ICONERROR,
-            MB_OK,
-        };
+        use windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK};
 
-        let msg_wide: Vec<u16> = OsStr::new(message)
+        let msg_wide: Vec<u16> = OsStr::new(message).encode_wide().chain(Some(0)).collect();
+
+        let title_wide: Vec<u16> = OsStr::new("Game Accelerator Error")
             .encode_wide()
             .chain(Some(0))
             .collect();
-
-        let title_wide: Vec<u16> =
-            OsStr::new("Game Accelerator Error")
-                .encode_wide()
-                .chain(Some(0))
-                .collect();
 
         unsafe {
             MessageBoxW(
