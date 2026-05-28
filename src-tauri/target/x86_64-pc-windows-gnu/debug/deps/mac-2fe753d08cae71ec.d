@@ -1,0 +1,12 @@
+/workspaces/sd-wan-gaming-client/src-tauri/target/x86_64-pc-windows-gnu/debug/deps/mac-2fe753d08cae71ec.d: /home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/lib.rs /home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/test.rs /home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/mem.rs /home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/format.rs /home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/syntax_ext.rs /home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/matches.rs /home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/inspect.rs /home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/cfg.rs
+
+/workspaces/sd-wan-gaming-client/src-tauri/target/x86_64-pc-windows-gnu/debug/deps/libmac-2fe753d08cae71ec.rmeta: /home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/lib.rs /home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/test.rs /home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/mem.rs /home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/format.rs /home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/syntax_ext.rs /home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/matches.rs /home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/inspect.rs /home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/cfg.rs
+
+/home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/lib.rs:
+/home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/test.rs:
+/home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/mem.rs:
+/home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/format.rs:
+/home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/syntax_ext.rs:
+/home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/matches.rs:
+/home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/inspect.rs:
+/home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/cfg.rs:

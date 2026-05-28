@@ -1,0 +1,11 @@
+/workspaces/sd-wan-gaming-client/src-tauri/target/x86_64-pc-windows-gnu/debug/deps/winreg-adf38f7e20cb7b3e.d: /home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/winreg-0.50.0/src/lib.rs /home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/winreg-0.50.0/src/common.rs /home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/winreg-0.50.0/src/enums.rs /home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/winreg-0.50.0/src/reg_key.rs /home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/winreg-0.50.0/src/reg_key_metadata.rs /home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/winreg-0.50.0/src/reg_value.rs /home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/winreg-0.50.0/src/types.rs
+
+/workspaces/sd-wan-gaming-client/src-tauri/target/x86_64-pc-windows-gnu/debug/deps/libwinreg-adf38f7e20cb7b3e.rmeta: /home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/winreg-0.50.0/src/lib.rs /home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/winreg-0.50.0/src/common.rs /home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/winreg-0.50.0/src/enums.rs /home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/winreg-0.50.0/src/reg_key.rs /home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/winreg-0.50.0/src/reg_key_metadata.rs /home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/winreg-0.50.0/src/reg_value.rs /home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/winreg-0.50.0/src/types.rs
+
+/home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/winreg-0.50.0/src/lib.rs:
+/home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/winreg-0.50.0/src/common.rs:
+/home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/winreg-0.50.0/src/enums.rs:
+/home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/winreg-0.50.0/src/reg_key.rs:
+/home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/winreg-0.50.0/src/reg_key_metadata.rs:
+/home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/winreg-0.50.0/src/reg_value.rs:
+/home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/winreg-0.50.0/src/types.rs:
