@@ -14,12 +14,11 @@ use libloading::os::windows::{Library, LOAD_WITH_ALTERED_SEARCH_PATH};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 use windows::Win32::NetworkManagement::IpHelper::{
-    CreateIpForwardEntry2, CreateUnicastIpAddressEntry,
-    DeleteIpForwardEntry2, DeleteUnicastIpAddressEntry, GetIfEntry2,
-    GetIpForwardEntry2, GetUnicastIpAddressEntry, InitializeIpForwardEntry,
-    InitializeIpInterfaceEntry, InitializeUnicastIpAddressEntry, SetIpForwardEntry2,
-    SetIpInterfaceEntry, SetUnicastIpAddressEntry, MIB_IF_ROW2, MIB_IPFORWARD_ROW2,
-    MIB_IPINTERFACE_ROW, MIB_UNICASTIPADDRESS_ROW,
+    CreateIpForwardEntry2, CreateUnicastIpAddressEntry, DeleteIpForwardEntry2,
+    DeleteUnicastIpAddressEntry, GetIfEntry2, GetIpForwardEntry2, GetUnicastIpAddressEntry,
+    InitializeIpForwardEntry, InitializeIpInterfaceEntry, InitializeUnicastIpAddressEntry,
+    SetIpForwardEntry2, SetIpInterfaceEntry, SetUnicastIpAddressEntry, MIB_IF_ROW2,
+    MIB_IPFORWARD_ROW2, MIB_IPINTERFACE_ROW, MIB_UNICASTIPADDRESS_ROW,
 };
 use windows::Win32::NetworkManagement::Ndis::{IfOperStatusUp, NET_LUID_LH};
 use windows::Win32::Networking::WinSock::{AF_INET, SOCKADDR_INET};
@@ -449,7 +448,7 @@ pub async fn tunnel_apply_config(
 ) -> Result<TunnelStatus, String> {
     use crate::wireguard_parser;
     use crate::wireguard_serializer::{hexdump, serialize_config};
-    
+
     state.invalidate_session();
     let session_id = state.begin_session();
 
