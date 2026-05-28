@@ -17,7 +17,7 @@ use windows::Win32::NetworkManagement::IpHelper::{
     CreateIpForwardEntry2, CreateUnicastIpAddressEntry, DeleteIpForwardEntry2,
     DeleteUnicastIpAddressEntry, GetIfEntry2, GetIpForwardEntry2, GetUnicastIpAddressEntry,
     InitializeIpForwardEntry, InitializeIpInterfaceEntry, InitializeUnicastIpAddressEntry,
-    SetIpForwardEntry2, SetIpInterfaceEntry, SetUnicastIpAddressEntry, MIB_IF_ROW2,
+    SetIpForwardEntry2, SetUnicastIpAddressEntry, MIB_IF_ROW2,
     MIB_IPFORWARD_ROW2, MIB_IPINTERFACE_ROW, MIB_UNICASTIPADDRESS_ROW,
 };
 use windows::Win32::NetworkManagement::Ndis::{IfOperStatusUp, NET_LUID_LH};
@@ -460,6 +460,7 @@ pub async fn tunnel_apply_config(
     .await
     .map_err(|e| format!("Parse task panic: {e}"))?;
 
+    let parsed = parsed?;
     tracing::info!("Config parsed: {} peer(s)", parsed.peers.len());
 
     // ── 2. Serialize ───────────────────────────────────────────────────────
