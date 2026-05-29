@@ -6,10 +6,10 @@ use windows::Win32::Networking::WinSock::AF_INET;
 
 pub fn resolve_dll_path(handle: &AppHandle, dll_name: &str) -> Result<PathBuf, String> {
     // 1. Try the bundled resource path used by Tauri v2.
-    if let Ok(resource_path) = handle
-        .path()
-        .resolve(format!("resources/{dll_name}"), tauri::path::BaseDirectory::Resource)
-    {
+    if let Ok(resource_path) = handle.path().resolve(
+        format!("resources/{dll_name}"),
+        tauri::path::BaseDirectory::Resource,
+    ) {
         if resource_path.exists() {
             return Ok(resource_path);
         }
