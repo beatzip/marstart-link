@@ -879,21 +879,25 @@ fn current_unix_secs() -> u64 {
 
 fn best_route_interface_for(endpoint: SocketAddr) -> Result<u32, String> {
     use windows::Win32::NetworkManagement::IpHelper::GetBestRoute2;
-    let endpoint_ipv4 = match endpoint.ip() {
-        IpAddr::V4(v4) => v4,
-        IpAddr::V6(_)  => return Err("route verification for IPv6 endpoint not implemented".into()),
-    };
-    unsafe {
-        let mut dst: SOCKADDR_INET = std::mem::zeroed();
-        dst.si_family             = AF_INET;
-        dst.Ipv4.sin_family       = AF_INET;
-        dst.Ipv4.sin_addr.S_un.S_addr = u32::from_ne_bytes(endpoint_ipv4.octets());
+    use windows::Win32::Networking::WinSock::AF_INET6;
 
+    let mut dst: SOCKADDR_INET = match endpoint.ip() {
+        IpAddr::V4(v4) => {
+            let mut sa = SOCKADDR_INET::default();
+            sa.si_family = AF_INET;
+            sa.Ipv4.sin_family = AF_INET;
+            sa.Ipv4.sin_addr.S_un.S_addr = u32::from_ne_bytes(v4.octets());
+            sa
+        }
+        IpAddr::V6(v6) => sockaddr_inet_from_ipv6(&v6),
+    };
+
+    unsafe {
         let mut best_route: MIB_IPFORWARD_ROW2 = std::mem::zeroed();
         let mut best_src:   SOCKADDR_INET       = std::mem::zeroed();
 
         GetBestRoute2(None, 0, None, &dst as *const SOCKADDR_INET, 0, &mut best_route, &mut best_src)
-            .map_err(|e| format!("GetBestRoute2(route verification): {e}"))?;
+            .map_err(|e| format!("GetBestRoute2: {e}"))?;
 
         Ok(best_route.InterfaceIndex)
     }
@@ -959,51 +963,75 @@ fn remove_interface_address(if_idx: u32, ip: IpAddr, prefix: u8) {
 /// `Err(...)` on failure.
 /// Previously returned `Ok(std::mem::zeroed())` for on-link case,
 /// which caused `DeleteIpForwardEntry2` on a zero struct (default route deletion!).
+/// CRIT-3 FIX + IPv6 support.
+/// Returns `Ok(Some(row))` when a bypass was created,
+/// `Ok(None)` if endpoint is on-link (no bypass needed),
+/// `Err(...)` on failure.
 fn add_full_tunnel_bypass_route(endpoint: SocketAddr) -> Result<Option<MIB_IPFORWARD_ROW2>, String> {
     use windows::Win32::NetworkManagement::IpHelper::GetBestRoute2;
-    let endpoint_ipv4 = match endpoint.ip() {
-        IpAddr::V4(v4) => v4,
-        IpAddr::V6(_)  => return Err("IPv6 endpoint bypass not implemented".into()),
+    use windows::Win32::Networking::WinSock::AF_INET6;
+
+    let (family, dst, ip_str) = match endpoint.ip() {
+        IpAddr::V4(v4) => {
+            let mut sa = SOCKADDR_INET::default();
+            sa.si_family = AF_INET;
+            sa.Ipv4.sin_family = AF_INET;
+            sa.Ipv4.sin_addr.S_un.S_addr = u32::from_ne_bytes(v4.octets());
+            (AF_INET, sa, format!("{}", v4))
+        }
+        IpAddr::V6(v6) => {
+            let sa = sockaddr_inet_from_ipv6(&v6);
+            (AF_INET6, sa, format!("{}", v6))
+        }
     };
 
     unsafe {
-        let mut dst: SOCKADDR_INET = std::mem::zeroed();
-        dst.si_family             = AF_INET;
-        dst.Ipv4.sin_family       = AF_INET;
-        dst.Ipv4.sin_addr.S_un.S_addr = u32::from_ne_bytes(endpoint_ipv4.octets());
-
         let mut best_route: MIB_IPFORWARD_ROW2 = std::mem::zeroed();
         let mut best_src:   SOCKADDR_INET       = std::mem::zeroed();
 
         GetBestRoute2(None, 0, None, &dst as *const SOCKADDR_INET, 0,
                       &mut best_route, &mut best_src)
-            .map_err(|e| format!("GetBestRoute2 for endpoint {endpoint_ipv4}: {e}"))?;
+            .map_err(|e| format!("GetBestRoute2 for endpoint {}: {e}", ip_str))?;
 
-        let next_hop_v4 = best_route.NextHop.Ipv4.sin_addr.S_un.S_addr;
-        if next_hop_v4 == 0 {
-            // Endpoint is on the same subnet — no bypass route needed.
-            // CRIT-3 FIX: return None instead of zeroed() sentinel.
-            tracing::info!("Endpoint {endpoint_ipv4} is on-link — no bypass needed");
+        // Проверяем, является ли endpoint on-link (next-hop = 0)
+        let is_on_link = match family {
+            AF_INET => best_route.NextHop.Ipv4.sin_addr.S_un.S_addr == 0,
+            AF_INET6 => {
+                let zero = IN6_ADDR::default();
+                best_route.NextHop.Ipv6.sin6_addr.u.Byte == zero.u.Byte
+            }
+            _ => false,
+        };
+
+        if is_on_link {
+            tracing::info!("Endpoint {} is on-link — no bypass needed", ip_str);
             return Ok(None);
         }
 
+        // Создаём host route /32 для IPv4 или /128 для IPv6
         let mut bypass: MIB_IPFORWARD_ROW2 = std::mem::zeroed();
         InitializeIpForwardEntry(&mut bypass);
-        bypass.InterfaceIndex                             = best_route.InterfaceIndex;
-        bypass.InterfaceLuid                             = best_route.InterfaceLuid;
-        bypass.DestinationPrefix.PrefixLength            = 32;
-        bypass.DestinationPrefix.Prefix.si_family        = AF_INET;
-        bypass.DestinationPrefix.Prefix.Ipv4.sin_addr.S_un.S_addr =
-            u32::from_ne_bytes(endpoint_ipv4.octets());
-        bypass.NextHop = best_route.NextHop;
-        bypass.Metric  = 1;
+        bypass.InterfaceIndex   = best_route.InterfaceIndex;
+        bypass.InterfaceLuid    = best_route.InterfaceLuid;
+        bypass.NextHop          = best_route.NextHop;
+        bypass.Metric           = 1;
+
+        if family == AF_INET {
+            bypass.DestinationPrefix.PrefixLength = 32;
+            bypass.DestinationPrefix.Prefix.Ipv4 = dst.Ipv4;
+        } else {
+            bypass.DestinationPrefix.PrefixLength = 128;
+            bypass.DestinationPrefix.Prefix.Ipv6 = dst.Ipv6;
+        }
 
         CreateIpForwardEntry2(&bypass)
-            .map_err(|e| format!("CreateIpForwardEntry2 (bypass): {e}"))?;
+            .map_err(|e| format!("CreateIpForwardEntry2 (bypass for {}): {e}", ip_str))?;
 
         tracing::info!(
-            "Bypass host route added: {}/32 via gateway_if={}",
-            endpoint_ipv4, bypass.InterfaceIndex
+            "Bypass host route added: {}/{} via gateway_if={}",
+            ip_str,
+            if family == AF_INET { 32 } else { 128 },
+            bypass.InterfaceIndex
         );
         Ok(Some(bypass))
     }
@@ -1167,4 +1195,18 @@ fn cleanup_runtime(dll: &WireGuardDll, rt: &mut TunnelRuntime) {
         rt.created_routes.clear();
     }
     let _ = dll; // reserved for future use
+}
+/// Создаёт SOCKADDR_INET для IPv6 адреса.
+fn sockaddr_inet_from_ipv6(addr: &std::net::Ipv6Addr) -> SOCKADDR_INET {
+    use windows::Win32::Networking::WinSock::{IN6_ADDR, SOCKADDR_IN6};
+    let mut sa = SOCKADDR_INET::default();
+    sa.si_family = AF_INET6;
+    sa.Ipv6 = SOCKADDR_IN6 {
+        sin6_family: AF_INET6,
+        sin6_addr: IN6_ADDR { u: windows::Win32::Networking::WinSock::IN6_ADDR_0 { Byte: addr.octets() } },
+        sin6_port: 0,
+        sin6_flowinfo: 0,
+        sin6_scope_id: 0,
+    };
+    sa
 }
