@@ -86,8 +86,7 @@ fn cleanup_old_logs(log_dir: &str, keep_days: u64) {
             }
             if let Ok(meta) = entry.metadata() {
                 if let Ok(modified) = meta.modified() {
-                    if modified < cutoff {
-                        if std::fs::remove_file(&path).is_ok() {
+                    if modified < cutoff && std::fs::remove_file(&path).is_ok() {
                             // Can't use tracing here — subscriber not yet set up at first call.
                             // Subsequent calls (after reinit) could use tracing.
                         }

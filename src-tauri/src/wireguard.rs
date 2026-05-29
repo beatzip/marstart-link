@@ -131,7 +131,7 @@ type WireGuardGetConfigurationFn =
 // Runtime cleanup state
 // ============================================================================
 #[derive(Debug, Clone)]
-struct AssignedAddress {
+pub struct AssignedAddress {
     ip: IpAddr,
     prefix: u8,
 }
@@ -285,7 +285,7 @@ impl TunnelState {
             reconnect_on_resume: Arc::new(AtomicBool::new(false)),
         }
     }
-
+    #[allow(clippy::type_complexity)]
     pub fn clone_for_panic_hook(
         &self,
     ) -> (
