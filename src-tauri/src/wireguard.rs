@@ -918,16 +918,28 @@ async fn wait_for_handshake(
         if session_guard.load(Ordering::SeqCst) != session_id {
             return Err("Handshake task cancelled".into());
         }
-        let current_handle = {
+        let handshake_ts = {
             let guard = adapter.lock().unwrap_or_else(|p| p.into_inner());
             match *guard {
                 Some(h) if h.0 == handle.0 => h,
                 _ => return Err("Adapter changed during handshake wait".into()),
-            }
-        };
-        if let Ok(buf) = dll.get_configuration(current_handle) {
-            let peers = read_peer_stats(&buf);
-            if let Some((_, _, hs)) = peers.iter().max_by_key(|(_, _, hs)| *hs) {
+                };
+            match dll.get_configuration(h) {
+                Ok(buf) => {
+                    let peers = read_peer_stats(&buf);
+                    peers.iter().map(|(_, _, hs)| *hs).max().unwrap_or(0)
+                    }
+                    Err(_) => 0,
+                    }
+                }; // мьютекс освобождается здесь
+        if handshake_ts > 0 {
+            return Ok(handshake_ts);
+        }
+        tokio::time::sleep(Duration::from_millis(wait)).await;
+        wait = (wait * 2).min(2000);
+    }
+    Err("No handshake within timeout".into()
+ }   
                 if *hs > 0 {
                     return Ok(*hs);
                 }
