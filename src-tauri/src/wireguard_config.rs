@@ -42,6 +42,7 @@ pub struct ParsedPeer {
     pub public_key: [u8; WIREGUARD_KEY_LENGTH],
     pub preshared_key: Option<[u8; WIREGUARD_KEY_LENGTH]>,
     pub endpoint: Option<SocketAddr>,
+    pub endpoint_hostname: Option<String>,
     pub persistent_keepalive: Option<u16>,
     pub allowed_ips: Vec<ParsedAllowedIp>,
 }

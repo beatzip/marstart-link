@@ -29,6 +29,21 @@ const WG_INTERFACE_MTU: u32 = 1420;
 
 // Route-monitor poll interval: re-check bypass-route every 15 s (M-6)
 const ROUTE_MONITOR_INTERVAL_SECS: u64 = 15;
+const DNS_REFRESH_INTERVAL_SECS: u64 = 300; // 5 минут
+
+fn extract_hostname_from_config(config: &str) -> Option<String> {
+    for line in config.lines() {
+        let line = line.trim();
+        if line.starts_with("Endpoint =") || line.starts_with("Endpoint=") {
+            let after_eq = line.split('=').nth(1)?;
+            let host_part = after_eq.split(':').next()?.trim();
+            if host_part.parse::<std::net::IpAddr>().is_err() {
+                return Some(host_part.to_string());
+            }
+        }
+    }
+    None
+}
 
 // ============================================================================
 // Newtype for Send + Sync raw adapter handle
@@ -98,12 +113,14 @@ struct AssignedAddress {
 
 pub struct TunnelRuntime {
     pub interface_index:   u32,
-    pub interface_luid:    NET_LUID_LH,     // stored for registry-DNS (HIGH-2)
+    pub interface_luid:    NET_LUID_LH,
     pub assigned_address:  Option<AssignedAddress>,
     pub dns_servers:       Vec<String>,
     pub primary_endpoint:  Option<SocketAddr>,
-    /// Routes we created — cleaned up on disconnect
     pub created_routes:    Vec<MIB_IPFORWARD_ROW2>,
+    // Новые поля:
+    pub endpoint_hostname: Option<String>,          // исходное доменное имя
+    pub current_bypass_row: Option<MIB_IPFORWARD_ROW2>, // последний созданный bypass маршрут
 }
 
 // ============================================================================
@@ -243,6 +260,67 @@ impl TunnelState {
     pub fn current_session(&self) -> u64 {
         self.session_id.load(Ordering::SeqCst)
     }
+    pub fn spawn_dns_refresher(
+    runtime: Arc<Mutex<Option<TunnelRuntime>>>,
+) {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(DNS_REFRESH_INTERVAL_SECS));
+        loop {
+            interval.tick().await;
+            let (hostname, old_endpoint, if_idx) = {
+                let guard = runtime.lock().unwrap_or_else(|p| p.into_inner());
+                let rt = match guard.as_ref() {
+                    Some(rt) => rt,
+                    None => continue,
+                };
+                let host = rt.endpoint_hostname.clone();
+                let ep = rt.primary_endpoint;
+                let idx = rt.interface_index;
+                (host, ep, idx)
+            };
+            let Some(hostname) = hostname else { continue };
+            // Разрешаем имя
+            let new_ips = match tokio::net::lookup_host(&hostname).await {
+                Ok(ips) => ips,
+                Err(e) => {
+                    tracing::warn!("DNS refresh lookup failed for {}: {}", hostname, e);
+                    continue;
+                }
+            };
+            let new_ip = new_ips.into_iter().next().map(|sa| sa.ip());
+            let Some(new_ip) = new_ip else { continue };
+            let port = old_endpoint.map_or(51820, |ep| ep.port());
+            let new_endpoint = SocketAddr::new(new_ip, port);
+            if Some(new_endpoint) == old_endpoint {
+                continue;
+            }
+            tracing::info!("DNS refresh: {} resolved to new IP {}", hostname, new_ip);
+            // Обновляем runtime и bypass
+            let mut guard = runtime.lock().unwrap_or_else(|p| p.into_inner());
+            let rt = match guard.as_mut() {
+                Some(rt) => rt,
+                None => continue,
+            };
+            // Удаляем старый bypass, если он был
+            if let Some(old_row) = rt.current_bypass_row.take() {
+                unsafe { let _ = DeleteIpForwardEntry2(&old_row); }
+            }
+            // Создаём новый bypass
+            match add_full_tunnel_bypass_route(new_endpoint) {
+                Ok(Some(new_row)) => {
+                    rt.current_bypass_row = Some(new_row);
+                    rt.primary_endpoint = Some(new_endpoint);
+                    tracing::info!("DNS refresh: bypass route updated for new endpoint");
+                }
+                Ok(None) => {
+                    rt.primary_endpoint = Some(new_endpoint);
+                    tracing::info!("DNS refresh: endpoint now on-link, no bypass needed");
+                }
+                Err(e) => tracing::warn!("DNS refresh: bypass creation failed: {}", e),
+            }
+        }
+    });
+}
 }
 
 // ============================================================================
@@ -513,6 +591,8 @@ pub async fn tunnel_apply_config(
         dns_servers:      vec![],
         primary_endpoint: parsed.peers.first().and_then(|peer| peer.endpoint),
         created_routes:   vec![],
+        endpoint_hostname: extract_hostname_from_config(&config_content), // вызываем нашу функцию
+        current_bypass_row: None,
     };
 
     // ── 5a. Full-tunnel bypass route (MUST come before injecting 0.0.0.0/0) ─
@@ -1179,23 +1259,10 @@ fn run_powershell(script: &str) -> Result<(), String> {
     }
 }
 
-fn cleanup_runtime(dll: &WireGuardDll, rt: &mut TunnelRuntime) {
-    if let Some(addr) = rt.assigned_address.take() {
-        remove_interface_address(rt.interface_index, addr.ip, addr.prefix);
-        tracing::info!("Removed IP {}/{}", addr.ip, addr.prefix);
+    if let Some(row) = rt.current_bypass_row.take() {
+        unsafe { let _ = DeleteIpForwardEntry2(&row); }
+        tracing::info!("Deleted bypass host route");
     }
-    if !rt.dns_servers.is_empty() {
-        reset_dns_servers(rt.interface_luid, rt.interface_index);
-        rt.dns_servers.clear();
-        tracing::info!("DNS reset");
-    }
-    if !rt.created_routes.is_empty() {
-        delete_created_routes(&rt.created_routes);
-        tracing::info!("Deleted {} routes", rt.created_routes.len());
-        rt.created_routes.clear();
-    }
-    let _ = dll; // reserved for future use
-}
 /// Создаёт SOCKADDR_INET для IPv6 адреса.
 fn sockaddr_inet_from_ipv6(addr: &std::net::Ipv6Addr) -> SOCKADDR_INET {
     use windows::Win32::Networking::WinSock::{IN6_ADDR, SOCKADDR_IN6};

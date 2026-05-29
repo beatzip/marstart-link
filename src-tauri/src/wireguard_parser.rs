@@ -101,7 +101,11 @@ pub fn parse_wireguard_config(text: &str) -> Result<ParsedConfig, String> {
                 "PresharedKey" => {
                     builder.preshared_key = Some(decode_wg_key(value, "PresharedKey", line_num)?)
                 }
-                "Endpoint" => builder.endpoint = Some(parse_endpoint(value, line_num)?),
+                "Endpoint" => {
+                let hostname_str = value.split(':').next().unwrap_or(value).to_string();
+                builder.endpoint_hostname = Some(hostname_str.clone());
+                builder.endpoint = Some(parse_endpoint(value, line_num)?);
+                }
                 "PersistentKeepalive" => {
                     builder.persistent_keepalive =
                         Some(value.parse().map_err(|e| {
@@ -199,6 +203,7 @@ struct ParsedPeerBuilder {
     public_key: Option<[u8; WIREGUARD_KEY_LENGTH]>,
     preshared_key: Option<[u8; WIREGUARD_KEY_LENGTH]>,
     endpoint: Option<SocketAddr>,
+    endpoint_hostname: Option<String>,
     persistent_keepalive: Option<u16>,
     allowed_ips: Vec<ParsedAllowedIp>,
 }
@@ -209,6 +214,7 @@ impl ParsedPeerBuilder {
             public_key: None,
             preshared_key: None,
             endpoint: None,
+            endpoint_hostname: None,
             persistent_keepalive: None,
             allowed_ips: Vec::new(),
         }
@@ -221,6 +227,7 @@ impl ParsedPeerBuilder {
             public_key,
             preshared_key: self.preshared_key,
             endpoint: self.endpoint,
+            endpoint_hostname: self.endpoint_hostname,
             persistent_keepalive: self.persistent_keepalive,
             allowed_ips: self.allowed_ips,
         })

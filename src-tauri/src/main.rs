@@ -137,6 +137,7 @@ fn run_app() -> Result<(), Box<dyn std::error::Error>> {
                 tunnel_state.runtime.clone(),
                 tunnel_state.dll.clone(),
             );
+            wireguard::spawn_dns_refresher(tunnel_state.runtime.clone());
 
             // ── Register managed state ──────────────────────────────────────
             app.manage(tunnel_state);
