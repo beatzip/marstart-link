@@ -21,7 +21,8 @@ use windows::Win32::NetworkManagement::IpHelper::{
 };
 use windows::Win32::NetworkManagement::Ndis::{IfOperStatusUp, NET_LUID_LH};
 use windows::Win32::Networking::WinSock::{AF_INET, AF_INET6, IN6_ADDR, IN6_ADDR_0, SOCKADDR_INET};
-use windows::Win32::UI::WindowsAndMessaging::{DefWindowProcW, HWND, LRESULT, LPARAM, WPARAM};
+use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+use windows::Win32::UI::WindowsAndMessaging::DefWindowProcW;
 
 // ============================================================================
 // MTU  (1500 − 20 IPv4 − 8 UDP − 32 WG overhead = 1440; −20 spare → 1420)
