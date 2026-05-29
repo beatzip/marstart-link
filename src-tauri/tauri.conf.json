@@ -6,7 +6,7 @@
     "beforeBuildCommand": ""
   },
   "package": {
-    "productName": "Game Accelerator",
+    "productName": "GameAccelerator",
     "version": "0.1.0"
   },
   "tauri": {
@@ -38,13 +38,12 @@
       "windows": {
         "webviewInstallMode": {
           "type": "embedBootstrapper"
-            },
-    "nsis": {
-      "installerName": "GameAccelerator_${version}_x64-setup.exe"
-    },
-    "wix": {
-      "installerName": "GameAccelerator_${version}_x64_en-US.msi"
-
+        },
+        "nsis": {
+          "installer_name": "GameAccelerator_${version}_x64-setup.exe"
+        },
+        "wix": {
+          "installer_name": "GameAccelerator_${version}_x64_en-US.msi"
         }
       }
     },
@@ -68,7 +67,7 @@
       "active": true,
       "endpoints": ["https://github.com/beatzip/sd-wan-gaming-client/releases/latest/download/latest.json"],
       "dialog": true,
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDdDRDRGRUFFMTc2NjgwNzMKUldSemdHWVhydjdVZkV1dDdqVjJnUWhTUG5SM002a2pxMXlSeVhpYi9xakhVdE1XU3orR3dYMEYK"
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDIwQzRCQzU3RjkyRDUzRDIKUldUU1V5MzVWN3pFSUN1cnk2K2lPRm9nYUJNNit2TFB3N1VpSzlPNDhMa0hKS3lRaE1jb2NEc3gK"
     }
   }
 }
