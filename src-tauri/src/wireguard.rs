@@ -25,13 +25,75 @@ use windows::Win32::Networking::WinSock::{AF_INET, AF_INET6, IN6_ADDR, IN6_ADDR_
 use windows::Win32::UI::WindowsAndMessaging::DefWindowProcW;
 
 // ============================================================================
-// MTU  (1500 − 20 IPv4 − 8 UDP − 32 WG overhead = 1440; −20 spare → 1420)
+// CONSTANTS
 // ============================================================================
+/// MTU: 1500 − 20 IPv4 − 8 UDP − 32 WG overhead = 1440; −20 spare → 1420
 const WG_INTERFACE_MTU: u32 = 1420;
 
-// Route-monitor poll interval: re-check bypass-route every 15 s (M-6)
+/// Route-monitor poll interval
 const ROUTE_MONITOR_INTERVAL_SECS: u64 = 15;
-const DNS_REFRESH_INTERVAL_SECS: u64 = 300; // 5 минут
+
+/// DNS refresh interval
+const DNS_REFRESH_INTERVAL_SECS: u64 = 300;
+
+/// Maximum adapter name length (Windows limit is 64 chars for interface names)
+const MAX_ADAPTER_NAME_LEN: usize = 64;
+
+/// Maximum DNS server string length per entry
+const MAX_DNS_ENTRY_LEN: usize = 64;
+
+/// Maximum number of DNS entries
+const MAX_DNS_ENTRIES: usize = 8;
+
+// ============================================================================
+// Input sanitisation helpers
+// ============================================================================
+
+/// Validates adapter name: alphanumeric + hyphens/spaces only, ≤64 chars.
+/// Prevents injection into Windows API calls that accept interface names.
+fn validate_adapter_name(name: &str) -> Result<(), String> {
+    if name.is_empty() {
+        return Err("Adapter name must not be empty".into());
+    }
+    if name.len() > MAX_ADAPTER_NAME_LEN {
+        return Err(format!(
+            "Adapter name too long: {} > {MAX_ADAPTER_NAME_LEN}",
+            name.len()
+        ));
+    }
+    // Allow alphanumerics, spaces, hyphens, underscores — consistent with
+    // Windows interface name rules and prevents shell/registry injection.
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == ' ')
+    {
+        return Err(format!(
+            "Adapter name contains invalid characters: {:?}",
+            name
+        ));
+    }
+    Ok(())
+}
+
+/// Validates a list of DNS server strings (IPv4/IPv6 addresses only).
+/// Prevents command-injection in the PowerShell fallback path and registry writes.
+fn validate_dns_servers(servers: &[String]) -> Result<(), String> {
+    if servers.len() > MAX_DNS_ENTRIES {
+        return Err(format!(
+            "Too many DNS entries: {} > {MAX_DNS_ENTRIES}",
+            servers.len()
+        ));
+    }
+    for s in servers {
+        if s.len() > MAX_DNS_ENTRY_LEN {
+            return Err(format!("DNS entry too long: {:?}", s));
+        }
+        if s.parse::<IpAddr>().is_err() {
+            return Err(format!("DNS entry is not a valid IP address: {:?}", s));
+        }
+    }
+    Ok(())
+}
 
 // ============================================================================
 // Вспомогательные функции
@@ -62,7 +124,6 @@ fn sockaddr_inet_from_ipv6(addr: &std::net::Ipv6Addr) -> SOCKADDR_INET {
     };
     sa.Ipv6.sin6_port = 0;
     sa.Ipv6.sin6_flowinfo = 0;
-    // sin6_scope_id остаётся 0 из zeroed()
     sa
 }
 
@@ -251,6 +312,13 @@ impl WireGuardDll {
             if size == 0 {
                 return Err("GetConfiguration: size query returned 0".into());
             }
+            // FIX: cap size to prevent allocating gigabytes from a malformed DLL response
+            const MAX_CONFIG_SIZE: u32 = 1024 * 1024; // 1 MiB
+            if size > MAX_CONFIG_SIZE {
+                return Err(format!(
+                    "GetConfiguration: reported size {size} exceeds max {MAX_CONFIG_SIZE}"
+                ));
+            }
             let mut buf = vec![0u8; size as usize];
             let ok = (self.get_configuration_fn)(h.0, buf.as_mut_ptr(), &mut size);
             if ok == 0 {
@@ -285,6 +353,7 @@ impl TunnelState {
             reconnect_on_resume: Arc::new(AtomicBool::new(false)),
         }
     }
+
     #[allow(clippy::type_complexity)]
     pub fn clone_for_panic_hook(
         &self,
@@ -493,6 +562,18 @@ pub async fn tunnel_apply_config(
     use crate::wireguard_parser;
     use crate::wireguard_serializer::serialize_config;
 
+    // ── FIX-1: Validate adapter_name before using it in Windows API calls ──
+    validate_adapter_name(&adapter_name)?;
+
+    // ── FIX-2: Bound total config size to prevent memory exhaustion ─────────
+    const MAX_CONFIG_LEN: usize = 65_536; // 64 KiB is vastly more than any legitimate WG config
+    if config_content.len() > MAX_CONFIG_LEN {
+        return Err(format!(
+            "Config too large: {} bytes (max {MAX_CONFIG_LEN})",
+            config_content.len()
+        ));
+    }
+
     state.invalidate_session();
     let session_id = state.begin_session();
 
@@ -504,6 +585,9 @@ pub async fn tunnel_apply_config(
     .map_err(|e| format!("Parse task panic: {e}"))??;
 
     tracing::info!(session_id, "Config parsed: {} peer(s)", parsed.peers.len());
+
+    // ── FIX-3: Validate DNS servers from config before accepting ──────────
+    validate_dns_servers(&parsed.dns_servers).map_err(|e| format!("Invalid DNS config: {e}"))?;
 
     let total_allowed_ips: usize = parsed.peers.iter().map(|p| p.allowed_ips.len()).sum();
     if total_allowed_ips > 50 {
@@ -839,7 +923,6 @@ fn power_monitor_thread(reconnect_flag: Arc<AtomicBool>) {
         HWND_MESSAGE, MSG, WINDOW_EX_STYLE, WINDOW_STYLE, WNDCLASSEXW,
     };
 
-    // Обёртка для DefWindowProcW с правильной сигнатурой
     unsafe extern "system" fn wnd_proc(
         hwnd: HWND,
         msg: u32,
@@ -963,7 +1046,7 @@ pub fn spawn_dns_refresher(runtime: Arc<Mutex<Option<TunnelRuntime>>>) {
                 (rt.endpoint_hostname.clone(), rt.primary_endpoint)
             };
             let Some(hostname) = hostname else { continue };
-            let new_ips = match tokio::net::lookup_host(&hostname).await {
+            let new_ips = match tokio::net::lookup_host(format!("{}:0", hostname)).await {
                 Ok(ips) => ips,
                 Err(e) => {
                     tracing::warn!("DNS refresh lookup failed for {}: {}", hostname, e);
@@ -1036,7 +1119,6 @@ async fn wait_for_interface_up(if_idx: u32, timeout: Duration) -> Result<(), Str
     ))
 }
 
-// Исправленная функция wait_for_handshake (CRIT-4)
 async fn wait_for_handshake(
     dll: Arc<WireGuardDll>,
     adapter: Arc<Mutex<Option<WireGuardAdapterHandle>>>,
@@ -1327,7 +1409,8 @@ fn apply_dns_via_registry(luid: NET_LUID_LH, servers: &[String]) -> Result<(), S
         .create_subkey(&reg_path)
         .map_err(|e| format!("Registry create_subkey({reg_path}): {e}"))?;
 
-    let dns_value = servers.join(",");
+    // FIX-4: use space-separated (not comma) which is the correct Windows format
+    let dns_value = servers.join(" ");
     key.set_value("NameServer", &dns_value)
         .map_err(|e| format!("Registry set NameServer: {e}"))?;
 
@@ -1362,6 +1445,8 @@ fn reset_dns_servers(luid: NET_LUID_LH, if_idx: u32) {
 }
 
 fn apply_dns_via_powershell(if_idx: u32, servers: &[String]) -> Result<(), String> {
+    // FIX-5: servers already validated as IP addresses by validate_dns_servers()
+    // so quoting is safe. Using single-quote escape for PowerShell.
     let quoted = servers
         .iter()
         .map(|s| format!("'{}'", s.replace('\'', "''")))
