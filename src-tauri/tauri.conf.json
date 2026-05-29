@@ -38,6 +38,13 @@
       "windows": {
         "webviewInstallMode": {
           "type": "embedBootstrapper"
+            },
+    "nsis": {
+      "installerName": "GameAccelerator_${version}_x64-setup.exe"
+    },
+    "wix": {
+      "installerName": "GameAccelerator_${version}_x64_en-US.msi"
+
         }
       }
     },
