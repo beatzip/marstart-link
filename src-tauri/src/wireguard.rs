@@ -58,7 +58,6 @@ fn sockaddr_inet_from_ipv6(addr: &std::net::Ipv6Addr) -> SOCKADDR_INET {
         sin6_addr: IN6_ADDR { u: IN6_ADDR_0 { Byte: addr.octets() } },
         sin6_port: 0,
         sin6_flowinfo: 0,
-        sin6_scope_id: 0,
     };
     sa
 }
@@ -740,7 +739,7 @@ fn power_monitor_thread(reconnect_flag: Arc<AtomicBool>) {
             HWND_MESSAGE,
             None, None, None,
         );
-        if hwnd.0.is_null() {
+        if hwnd.is_null() {
             tracing::warn!("PowerMonitor: CreateWindowExW returned NULL");
             return;
         }
@@ -939,7 +938,7 @@ fn current_unix_secs() -> u64 {
 fn best_route_interface_for(endpoint: SocketAddr) -> Result<u32, String> {
     use windows::Win32::NetworkManagement::IpHelper::GetBestRoute2;
 
-    let mut dst: SOCKADDR_INET = match endpoint.ip() {
+    let dst: SOCKADDR_INET = match endpoint.ip() {
         IpAddr::V4(v4) => {
             let mut sa = SOCKADDR_INET::default();
             sa.si_family = AF_INET;
