@@ -128,7 +128,7 @@ fn sockaddr_inet_from_ipv6(addr: &std::net::Ipv6Addr) -> SOCKADDR_INET {
 }
 
 // ============================================================================
-// Newtype for Send + Sync raw adapter handle
+// Newtype for Send a Sync raw adapter handle
 // ============================================================================
 #[derive(Clone, Copy)]
 pub struct WireGuardAdapterHandle(*mut c_void);
