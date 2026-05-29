@@ -1,18 +1,21 @@
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use windows::Win32::NetworkManagement::IpHelper::{InitializeIpForwardEntry, MIB_IPFORWARD_ROW2};
 use windows::Win32::Networking::WinSock::AF_INET;
 
 pub fn resolve_dll_path(handle: &AppHandle, dll_name: &str) -> Result<PathBuf, String> {
-    // 1. 尝试从 Tauri 打包的 resources 中解析
-    if let Some(resource_path) = handle.path_resolver().resolve_resource(dll_name) {
+    // 1. Try the bundled resource path used by Tauri v2.
+    if let Ok(resource_path) = handle
+        .path()
+        .resolve(format!("resources/{dll_name}"), tauri::path::BaseDirectory::Resource)
+    {
         if resource_path.exists() {
             return Ok(resource_path);
         }
     }
 
-    // 2. Fallback: 开发环境下的相对路径
+    // 2. Fallback: development relative path.
     let dev_path = PathBuf::from("resources").join(dll_name);
     if dev_path.exists() {
         return Ok(dev_path);

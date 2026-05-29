@@ -4,13 +4,13 @@ version = "0.1.0"
 edition = "2021"
 
 [build-dependencies]
-tauri-build = { version = "1.5", features = [] }
+tauri-build = "2"
 winres = "0.1"
 reqwest = { version = "0.11", features = ["blocking"] }
 zip-extract = "0.1"
 
 [dependencies]
-tauri = { version = "1.5", features = ["system-tray", "updater", "shell-open"] }
+tauri = { version = "2", features = ["tray-icon"] }
 
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -45,7 +45,3 @@ windows = { version = "0.52", features = [
     "Win32_UI_WindowsAndMessaging",
     "Win32_Graphics_Gdi",
 ] }
-
-[features]
-default = ["custom-protocol"]
-custom-protocol = ["tauri/custom-protocol"]

@@ -1,0 +1,8 @@
+target/
+src-tauri/target/
+node_modules/
+dist/
+build/
+*.msi
+*.exe
+*.pdb
