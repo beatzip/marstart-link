@@ -905,12 +905,12 @@ async fn wait_for_interface_up(if_idx: u32, timeout: Duration) -> Result<(), Str
 }
 
 async fn wait_for_handshake(
-    dll: Arc<WireGuardDll>,
-    adapter: Arc<Mutex<Option<WireGuardAdapterHandle>>>,
+    dll:           Arc<WireGuardDll>,
+    adapter:       Arc<Mutex<Option<WireGuardAdapterHandle>>>,
     session_guard: Arc<AtomicU64>,
-    session_id: u64,
-    handle: WireGuardAdapterHandle,
-    timeout: Duration,
+    session_id:    u64,
+    handle:        WireGuardAdapterHandle,
+    timeout:       Duration,
 ) -> Result<u64, String> {
     let start = Instant::now();
     let mut wait = 250u64;
@@ -920,30 +920,20 @@ async fn wait_for_handshake(
         }
         let handshake_ts = {
             let guard = adapter.lock().unwrap_or_else(|p| p.into_inner());
-            match *guard {
+            let h = match *guard {
                 Some(h) if h.0 == handle.0 => h,
                 _ => return Err("Adapter changed during handshake wait".into()),
-                };
+            };
             match dll.get_configuration(h) {
                 Ok(buf) => {
                     let peers = read_peer_stats(&buf);
                     peers.iter().map(|(_, _, hs)| *hs).max().unwrap_or(0)
-                    }
-                    Err(_) => 0,
-                    }
-                }; // мьютекс освобождается здесь
+                }
+                Err(_) => 0,
+            }
+        };
         if handshake_ts > 0 {
             return Ok(handshake_ts);
-        }
-        tokio::time::sleep(Duration::from_millis(wait)).await;
-        wait = (wait * 2).min(2000);
-    }
-    Err("No handshake within timeout".into()
- }   
-                if *hs > 0 {
-                    return Ok(*hs);
-                }
-            }
         }
         tokio::time::sleep(Duration::from_millis(wait)).await;
         wait = (wait * 2).min(2000);
