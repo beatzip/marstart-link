@@ -1,4 +1,3 @@
-````md
 # 🎮 Game Accelerator
 
 <div align="center">
@@ -29,22 +28,22 @@
 
 **Game Accelerator** — это Windows-клиент для игрового VPN / SD-WAN, созданный для сценариев, где важны:
 
-- минимальный пинг;
-- стабильный маршрут;
-- низкая задержка;
-- приоритет игрового трафика;
-- split tunneling.
+* минимальный пинг;
+* стабильный маршрут;
+* низкая задержка;
+* приоритет игрового трафика;
+* split tunneling.
 
 Проект ориентирован на игровые сценарии вроде:
 
-- CS2
-- Valorant
-- Dota 2
-- Apex Legends
-- Warzone
-- PUBG
-- Fortnite
-- и других онлайн-игр.
+* CS2
+* Valorant
+* Dota 2
+* Apex Legends
+* Warzone
+* PUBG
+* Fortnite
+* и других онлайн-игр.
 
 ---
 
@@ -52,76 +51,76 @@
 
 ### ✅ Нативная поддержка WireGuard-NT
 
-- максимальная производительность;
-- минимальные overhead;
-- работа через Windows networking stack.
+* максимальная производительность;
+* минимальные overhead;
+* работа через Windows networking stack.
 
 ### ✅ Парсинг WireGuard-конфигураций
 
-- обработка `AllowedIPs`;
-- подготовка маршрутов;
-- корректная работа IPv4/IPv6;
-- исправления порядка байтов IP-адресов;
-- улучшенная семантика маршрутизации.
+* обработка `AllowedIPs`;
+* подготовка маршрутов;
+* корректная работа IPv4/IPv6;
+* исправления порядка байтов IP-адресов;
+* улучшенная семантика маршрутизации.
 
 ### ✅ Endpoint resolving
 
-- разрешение доменных имён;
-- поддержка IP endpoint;
-- подготовка peer endpoint перед handshake.
+* разрешение доменных имён;
+* поддержка IP endpoint;
+* подготовка peer endpoint перед handshake.
 
 ### ✅ Route injection
 
-- добавление маршрутов через Windows IP Helper API;
-- игровой трафик через туннель;
-- остальной трафик напрямую;
-- подготовка split tunneling.
+* добавление маршрутов через Windows IP Helper API;
+* игровой трафик через туннель;
+* остальной трафик напрямую;
+* подготовка split tunneling.
 
 ### ✅ Adapter IP assignment
 
-- назначение IP-адреса интерфейсу;
-- подготовка tunnel adapter;
-- настройка интерфейса после подключения.
+* назначение IP-адреса интерфейсу;
+* подготовка tunnel adapter;
+* настройка интерфейса после подключения.
 
 ### ✅ DNS handling
 
-- базовая DNS-интеграция;
-- подготовка tunnel DNS;
-- уменьшение риска DNS leak.
+* базовая DNS-интеграция;
+* подготовка tunnel DNS;
+* уменьшение риска DNS leak.
 
 ### ✅ Статистика соединения
 
-- TX/RX polling;
-- live statistics;
-- состояние подключения;
-- handshake monitoring.
+* TX/RX polling;
+* live statistics;
+* состояние подключения;
+* handshake monitoring.
 
 ### ✅ Логирование и диагностика
 
-- runtime logs;
-- networking diagnostics;
-- debugging routing;
-- Windows troubleshooting.
+* runtime logs;
+* networking diagnostics;
+* debugging routing;
+* Windows troubleshooting.
 
 ### ✅ Архитектура клиента
 
-- Rust backend;
-- Tauri shell;
-- React + TypeScript frontend;
-- модульная структура проекта.
+* Rust backend;
+* Tauri shell;
+* React + TypeScript frontend;
+* модульная структура проекта.
 
 ---
 
 ## ✨ Основные возможности
 
-- **Низкий пинг** — маршрутизация через собственный VPS
-- **Split tunneling** — только игра через VPN
-- **Контроль туннелей** — запуск, остановка, статистика
-- **Профили серверов** — быстрое переключение между VPS
-- **Минималистичный UI** — быстрый современный интерфейс
-- **Windows-first подход** — оптимизация под Windows 10 / 11
-- **WireGuard-NT** — высокая скорость и стабильность
-- **Низкие накладные расходы** — минимальная нагрузка на систему
+* **Низкий пинг** — маршрутизация через собственный VPS
+* **Split tunneling** — только игра через VPN
+* **Контроль туннелей** — запуск, остановка, статистика
+* **Профили серверов** — быстрое переключение между VPS
+* **Минималистичный UI** — быстрый современный интерфейс
+* **Windows-first подход** — оптимизация под Windows 10 / 11
+* **WireGuard-NT** — высокая скорость и стабильность
+* **Низкие накладные расходы** — минимальная нагрузка на систему
 
 ---
 
@@ -129,22 +128,22 @@
 
 ### Backend
 
-- Rust 2021
-- windows-rs
-- Windows networking API
+* Rust 2021
+* windows-rs
+* Windows networking API
 
 ### Frontend
 
-- React
-- TypeScript
-- Vite
-- Tauri
+* React
+* TypeScript
+* Vite
+* Tauri
 
 ### Networking
 
-- WireGuard-NT
-- Wintun
-- Windows IP Helper API
+* WireGuard-NT
+* Wintun
+* Windows IP Helper API
 
 ---
 
@@ -152,10 +151,10 @@
 
 ### Требования
 
-- Windows 10 / 11 (64-bit)
-- Node.js
-- Rust toolchain
-- Собственный VPS с WireGuard
+* Windows 10 / 11 (64-bit)
+* Node.js
+* Rust toolchain
+* Собственный VPS с WireGuard
 
 ---
 
@@ -166,7 +165,7 @@
 ```bash
 git clone https://github.com/YOUR_USERNAME/sd-wan-gaming-client.git
 cd sd-wan-gaming-client
-````
+```
 
 ### Установка зависимостей
 
@@ -526,6 +525,3 @@ See `LICENSE`.
 If you like this project, give it a GitHub star.
 
 It helps Game Accelerator grow.
-
-```
-```
