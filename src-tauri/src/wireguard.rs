@@ -50,15 +50,13 @@ fn extract_hostname_from_config(config: &str) -> Option<String> {
 
 /// Создаёт SOCKADDR_INET для IPv6 адреса.
 fn sockaddr_inet_from_ipv6(addr: &std::net::Ipv6Addr) -> SOCKADDR_INET {
-    use windows::Win32::Networking::WinSock::{IN6_ADDR, SOCKADDR_IN6};
-    let mut sa = SOCKADDR_INET::default();
+    let mut sa = unsafe { std::mem::zeroed::<SOCKADDR_INET>() };
     sa.si_family = AF_INET6;
-    sa.Ipv6 = SOCKADDR_IN6 {
-        sin6_family: AF_INET6,
-        sin6_addr: IN6_ADDR { u: IN6_ADDR_0 { Byte: addr.octets() } },
-        sin6_port: 0,
-        sin6_flowinfo: 0,
-    };
+    sa.Ipv6.sin6_family = AF_INET6;
+    sa.Ipv6.sin6_addr = IN6_ADDR { u: IN6_ADDR_0 { Byte: addr.octets() } };
+    sa.Ipv6.sin6_port = 0;
+    sa.Ipv6.sin6_flowinfo = 0;
+    // sin6_scope_id остаётся 0 (из zeroed)
     sa
 }
 
@@ -724,7 +722,7 @@ fn power_monitor_thread(reconnect_flag: Arc<AtomicBool>) {
     unsafe {
         let wc = WNDCLASSEXW {
             cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
-            lpfnWndProc: Some(DefWindowProcW),
+            lpfnWndProc: Some(DefWindowProcW as _),
             lpszClassName: PCWSTR(class_name.as_ptr()),
             ..Default::default()
         };
@@ -739,7 +737,7 @@ fn power_monitor_thread(reconnect_flag: Arc<AtomicBool>) {
             HWND_MESSAGE,
             None, None, None,
         );
-        if hwnd.is_null() {
+        if hwnd.0 == 0 {
             tracing::warn!("PowerMonitor: CreateWindowExW returned NULL");
             return;
         }
