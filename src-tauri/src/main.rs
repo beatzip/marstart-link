@@ -54,8 +54,7 @@ fn setup_logging() -> WorkerGuard {
     // CRIT-1: non_blocking returns (Writer, WorkerGuard). Guard MUST be kept alive.
     let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
 
-    let env_filter =
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
     tracing_subscriber::registry()
         .with(env_filter)
@@ -133,10 +132,7 @@ fn run_app() -> Result<(), Box<dyn std::error::Error>> {
             wireguard::spawn_power_monitor(tunnel_state.reconnect_on_resume.clone());
 
             // M-6: Route change monitor → refreshes bypass route on gateway change
-            wireguard::spawn_route_monitor(
-                tunnel_state.runtime.clone(),
-                tunnel_state.dll.clone(),
-            );
+            wireguard::spawn_route_monitor(tunnel_state.runtime.clone(), tunnel_state.dll.clone());
             wireguard::spawn_dns_refresher(tunnel_state.runtime.clone());
 
             // ── Register managed state ──────────────────────────────────────
