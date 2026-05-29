@@ -102,9 +102,9 @@ pub fn parse_wireguard_config(text: &str) -> Result<ParsedConfig, String> {
                     builder.preshared_key = Some(decode_wg_key(value, "PresharedKey", line_num)?)
                 }
                 "Endpoint" => {
-                let hostname_str = value.split(':').next().unwrap_or(value).to_string();
-                builder.endpoint_hostname = Some(hostname_str.clone());
-                builder.endpoint = Some(parse_endpoint(value, line_num)?);
+                    let hostname_str = value.split(':').next().unwrap_or(value).to_string();
+                    builder.endpoint_hostname = Some(hostname_str.clone());
+                    builder.endpoint = Some(parse_endpoint(value, line_num)?);
                 }
                 "PersistentKeepalive" => {
                     builder.persistent_keepalive =
