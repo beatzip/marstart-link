@@ -1,51 +1,18 @@
 {
+  "productName": "GameAccelerator",
+  "version": "0.1.0",
+  "identifier": "com.gameaccelerator.app",
+  "mainBinaryName": "GameAccelerator",
   "build": {
-    "distDir": "../dist",
-    "devPath": "http://localhost:3000",
-    "beforeDevCommand": "",
-    "beforeBuildCommand": ""
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
   },
-  "package": {
-    "productName": "GameAccelerator",
-    "version": "0.1.0"
-  },
-  "tauri": {
-    "allowlist": {
-      "all": false,
-      "shell": {
-        "open": true
-      },
-      "fs": {
-        "all": false,
-        "scope": ["$APPDATA/GameAccelerator/**", "$RESOURCE/**"]
-      }
-    },
-    "bundle": {
-      "active": true,
-      "targets": "all",
-      "identifier": "com.gameaccelerator.app",
-      "icon": [
-        "icons/32x32.png",
-        "icons/128x128.png",
-        "icons/128x128@2x.png",
-        "icons/icon.icns",
-        "icons/icon.ico"
-      ],
-      "resources": [
-        "resources/wireguard.dll",
-        "resources/wintun.dll"
-      ],
-      "windows": {
-        "webviewInstallMode": {
-          "type": "embedBootstrapper"
-        }
-      }
-    },
-    "security": {
-      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost https://ipc.localhost ; img-src 'self' data: asset: https://asset.localhost ; style-src 'self' 'unsafe-inline'; script-src 'self'"
-    },
+  "app": {
     "windows": [
       {
+        "label": "main",
         "fullscreen": false,
         "resizable": true,
         "title": "GameAccelerator",
@@ -53,15 +20,32 @@
         "height": 600
       }
     ],
-    "systemTray": {
+    "trayIcon": {
       "iconPath": "icons/icon.png",
       "iconAsTemplate": true
     },
-    "updater": {
-      "active": true,
-      "endpoints": ["https://github.com/beatzip/sd-wan-gaming-client/releases/latest/download/latest.json"],
-      "dialog": true,
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDIwQzRCQzU3RjkyRDUzRDIKUldUU1V5MzVWN3pFSUN1cnk2K2lPRm9nYUJNNit2TFB3N1VpSzlPNDhMa0hKS3lRaE1jb2NEc3gK"
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost https://ipc.localhost ; img-src 'self' data: asset: https://asset.localhost ; style-src 'self' 'unsafe-inline'; script-src 'self'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": [
+      "resources/wireguard.dll",
+      "resources/wintun.dll"
+    ],
+    "windows": {
+      "webviewInstallMode": {
+        "type": "embedBootstrapper"
+      }
     }
   }
 }

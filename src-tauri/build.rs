@@ -7,6 +7,8 @@ use std::path::{Path, PathBuf};
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=src-tauri.manifest");
+    println!("cargo:rerun-if-changed=tauri.conf.json");
+    println!("cargo:rerun-if-changed=src-tauri/resources");
 
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_else(|_| "x86_64".to_string());
 
@@ -62,13 +64,15 @@ fn main() {
         &wintun_candidates,
     );
 
-    // Compile Windows resources only on Window
+    // Compile Windows resources only on Windows
     #[cfg(target_os = "windows")]
     {
         let mut res = winres::WindowsResource::new();
         res.set_manifest_file("src-tauri.manifest");
         res.compile().expect("Failed to compile Windows resources");
     }
+
+    tauri_build::build();
 
     println!("cargo:warning=build.rs completed successfully");
 }
