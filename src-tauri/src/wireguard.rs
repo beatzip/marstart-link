@@ -440,7 +440,6 @@ pub async fn tunnel_apply_config(
     state.invalidate_session();
     let session_id = state.begin_session();
 
-    // ── 1. Parse ──────────────────────────────────────────────────────────
     let parsed = tokio::task::spawn_blocking({
         let content = config_content.clone();
         move || wireguard_parser::parse_wireguard_config(&content)
@@ -458,7 +457,6 @@ pub async fn tunnel_apply_config(
         ));
     }
 
-    // ── 2. Serialize ─────────────────────────────────────────────────────
     let blob = serialize_config(&parsed)?;
     tracing::info!(session_id, "WG blob {} bytes", blob.len());
 
@@ -470,7 +468,6 @@ pub async fn tunnel_apply_config(
         status.adapter_name = Some(adapter_name.clone());
     }
 
-    // ── 3. Create adapter + configure + bring Up ─────────────────────────
     let (handle, if_idx, luid) = {
         let mut lock = state.adapter.lock().unwrap_or_else(|p| p.into_inner());
         if let Some(old) = lock.take() {
@@ -506,7 +503,6 @@ pub async fn tunnel_apply_config(
         (handle, if_idx, luid)
     };
 
-    // ── Emergency teardown helper ─────────────────────────────────────────
     let do_emergency_teardown = |msg: String| -> String {
         if let Some(mut rt) = state.runtime.lock().unwrap_or_else(|p| p.into_inner()).take() {
             cleanup_runtime(&state.dll, &mut rt);
@@ -523,14 +519,12 @@ pub async fn tunnel_apply_config(
         msg
     };
 
-    // ── 4. Wait for interface up ──────────────────────────────────────────
     if let Err(e) = wait_for_interface_up(if_idx, Duration::from_secs(20)).await {
         return Err(do_emergency_teardown(e));
     }
     tracing::info!(session_id, "Interface IfOperStatusUp confirmed");
     state.status.lock().unwrap_or_else(|p| p.into_inner()).health.interface_ok = true;
 
-    // ── 5. Build TunnelRuntime ────────────────────────────────────────────
     let mut runtime = TunnelRuntime {
         interface_index: if_idx,
         interface_luid: luid,
@@ -542,7 +536,6 @@ pub async fn tunnel_apply_config(
         current_bypass_row: None,
     };
 
-    // ── 5a. Full-tunnel bypass route ─────────────────────────────────────
     let has_half1 = expected_routes.iter().any(|r| r == "0.0.0.0/1");
     let has_half2 = expected_routes.iter().any(|r| r == "128.0.0.0/1");
     let is_full_tunnel = expected_routes.iter().any(|r| r == "0.0.0.0/0") || (has_half1 && has_half2);
@@ -554,7 +547,7 @@ pub async fn tunnel_apply_config(
                     Ok(Some(row)) => {
                         tracing::info!(session_id, "Full-tunnel bypass route added for {}", endpoint.ip());
                         runtime.created_routes.push(row);
-                        runtime.current_bypass_row = Some(row); // ← сохранение
+                        runtime.current_bypass_row = Some(row);
                     }
                     Ok(None) => tracing::info!(session_id, "Endpoint on-link — no bypass needed"),
                     Err(e) => tracing::warn!(session_id, "Bypass route failed (non-fatal): {e}"),
@@ -563,7 +556,6 @@ pub async fn tunnel_apply_config(
         }
     }
 
-    // ── 6. Assign interface IP ────────────────────────────────────────────
     if let (Some(ip), Some(prefix)) = (parsed.interface_address, parsed.interface_prefix) {
         match assign_interface_address(if_idx, ip, prefix) {
             Ok(_) => {
@@ -580,14 +572,12 @@ pub async fn tunnel_apply_config(
         tracing::warn!(session_id, "No Address field in config — interface has no IP");
     }
 
-    // ── 7. Set MTU ────────────────────────────────────────────────────────
     if let Err(e) = set_interface_mtu(if_idx, WG_INTERFACE_MTU) {
         tracing::warn!(session_id, "MTU set failed (non-fatal): {e}");
     } else {
         tracing::info!(session_id, "MTU set to {WG_INTERFACE_MTU}");
     }
 
-    // ── 8. Inject routes ──────────────────────────────────────────────────
     if let Err(e) = inject_routes(if_idx, &expected_routes, &mut runtime.created_routes) {
         tracing::warn!(session_id, "Route injection partial failure (non-fatal): {e}");
         state.status.lock().unwrap_or_else(|p| p.into_inner()).health.routes_ok = false;
@@ -595,7 +585,6 @@ pub async fn tunnel_apply_config(
         state.status.lock().unwrap_or_else(|p| p.into_inner()).health.routes_ok = true;
     }
 
-    // ── 9. DNS ────────────────────────────────────────────────────────────
     if !parsed.dns_servers.is_empty() {
         match apply_dns_servers(luid, if_idx, &parsed.dns_servers) {
             Ok(_) => {
@@ -610,10 +599,8 @@ pub async fn tunnel_apply_config(
         }
     }
 
-    // ── 10. Store runtime ─────────────────────────────────────────────────
     *state.runtime.lock().unwrap_or_else(|p| p.into_inner()) = Some(runtime);
 
-    // ── 11. Update status ─────────────────────────────────────────────────
     let health = state.status.lock().unwrap_or_else(|p| p.into_inner()).health.clone();
     let status = TunnelStatus {
         is_active: true,
@@ -629,7 +616,6 @@ pub async fn tunnel_apply_config(
     };
     *state.status.lock().unwrap_or_else(|p| p.into_inner()) = status.clone();
 
-    // ── 12. Async handshake wait ──────────────────────────────────────────
     let dll = state.dll.clone();
     let adapter = state.adapter.clone();
     let status_arc = state.status.clone();
@@ -820,7 +806,7 @@ pub fn spawn_route_monitor(runtime: Arc<Mutex<Option<TunnelRuntime>>>, dll: Arc<
 }
 
 // ============================================================================
-// DNS Refresher (Task 2)
+// DNS Refresher
 // ============================================================================
 pub fn spawn_dns_refresher(runtime: Arc<Mutex<Option<TunnelRuntime>>>) {
     tokio::spawn(async move {
@@ -904,13 +890,14 @@ async fn wait_for_interface_up(if_idx: u32, timeout: Duration) -> Result<(), Str
     Err(format!("Interface {if_idx} did not come up within {}s", timeout.as_secs()))
 }
 
+// ========== ИСПРАВЛЕННАЯ ФУНКЦИЯ wait_for_handshake (CRIT-4 FIX) ==========
 async fn wait_for_handshake(
-    dll:           Arc<WireGuardDll>,
-    adapter:       Arc<Mutex<Option<WireGuardAdapterHandle>>>,
+    dll: Arc<WireGuardDll>,
+    adapter: Arc<Mutex<Option<WireGuardAdapterHandle>>>,
     session_guard: Arc<AtomicU64>,
-    session_id:    u64,
-    handle:        WireGuardAdapterHandle,
-    timeout:       Duration,
+    session_id: u64,
+    handle: WireGuardAdapterHandle,
+    timeout: Duration,
 ) -> Result<u64, String> {
     let start = Instant::now();
     let mut wait = 250u64;
@@ -940,6 +927,7 @@ async fn wait_for_handshake(
     }
     Err("No handshake within timeout".into())
 }
+// ============================================================================
 
 fn current_unix_secs() -> u64 {
     std::time::SystemTime::now()
@@ -1137,7 +1125,7 @@ fn delete_created_routes(routes: &[MIB_IPFORWARD_ROW2]) {
 }
 
 // ============================================================================
-// DNS via Registry (HIGH-2 fix)
+// DNS via Registry
 // ============================================================================
 fn apply_dns_via_registry(luid: NET_LUID_LH, servers: &[String]) -> Result<(), String> {
     use windows::Win32::NetworkManagement::IpHelper::ConvertInterfaceLuidToGuid;
@@ -1226,7 +1214,7 @@ fn run_powershell(script: &str) -> Result<(), String> {
 }
 
 // ============================================================================
-// Cleanup runtime (must be defined after all helpers)
+// Cleanup runtime
 // ============================================================================
 fn cleanup_runtime(dll: &WireGuardDll, rt: &mut TunnelRuntime) {
     if let Some(addr) = rt.assigned_address.take() {
@@ -1243,7 +1231,6 @@ fn cleanup_runtime(dll: &WireGuardDll, rt: &mut TunnelRuntime) {
         tracing::info!("Deleted {} routes", rt.created_routes.len());
         rt.created_routes.clear();
     }
-    // Удаляем bypass-маршрут, если он был
     if let Some(row) = rt.current_bypass_row.take() {
         unsafe { let _ = DeleteIpForwardEntry2(&row); }
         tracing::info!("Deleted bypass host route");
