@@ -21,6 +21,7 @@ use windows::Win32::NetworkManagement::IpHelper::{
 };
 use windows::Win32::NetworkManagement::Ndis::{IfOperStatusUp, NET_LUID_LH};
 use windows::Win32::Networking::WinSock::{AF_INET, AF_INET6, IN6_ADDR, IN6_ADDR_0, SOCKADDR_INET};
+use windows::Win32::UI::WindowsAndMessaging::{DefWindowProcW, HWND, LRESULT, LPARAM, WPARAM};
 
 // ============================================================================
 // MTU  (1500 − 20 IPv4 − 8 UDP − 32 WG overhead = 1440; −20 spare → 1420)
@@ -56,7 +57,7 @@ fn sockaddr_inet_from_ipv6(addr: &std::net::Ipv6Addr) -> SOCKADDR_INET {
     sa.Ipv6.sin6_addr = IN6_ADDR { u: IN6_ADDR_0 { Byte: addr.octets() } };
     sa.Ipv6.sin6_port = 0;
     sa.Ipv6.sin6_flowinfo = 0;
-    // sin6_scope_id остаётся 0 (из zeroed)
+    // sin6_scope_id остаётся 0 из zeroed()
     sa
 }
 
@@ -704,11 +705,20 @@ pub fn spawn_power_monitor(reconnect_flag: Arc<AtomicBool>) {
 #[cfg(target_os = "windows")]
 fn power_monitor_thread(reconnect_flag: Arc<AtomicBool>) {
     use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW,
-        RegisterClassExW, TranslateMessage, HWND_MESSAGE, MSG, WINDOW_EX_STYLE,
-        WINDOW_STYLE, WNDCLASSEXW,
+        CreateWindowExW, DispatchMessageW, GetMessageW, HWND_MESSAGE, MSG,
+        RegisterClassExW, TranslateMessage, WINDOW_EX_STYLE, WINDOW_STYLE, WNDCLASSEXW,
     };
     use windows::core::PCWSTR;
+
+    // Обёртка для DefWindowProcW с правильной сигнатурой
+    unsafe extern "system" fn wnd_proc(
+        hwnd: HWND,
+        msg: u32,
+        wparam: WPARAM,
+        lparam: LPARAM,
+    ) -> LRESULT {
+        DefWindowProcW(hwnd, msg, wparam, lparam)
+    }
 
     const WM_POWERBROADCAST: u32 = 0x0218;
     const PBT_APMRESUMESUSPEND: usize = 7;
@@ -722,7 +732,7 @@ fn power_monitor_thread(reconnect_flag: Arc<AtomicBool>) {
     unsafe {
         let wc = WNDCLASSEXW {
             cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
-            lpfnWndProc: Some(DefWindowProcW as _),
+            lpfnWndProc: Some(wnd_proc),
             lpszClassName: PCWSTR(class_name.as_ptr()),
             ..Default::default()
         };
@@ -887,7 +897,7 @@ async fn wait_for_interface_up(if_idx: u32, timeout: Duration) -> Result<(), Str
     Err(format!("Interface {if_idx} did not come up within {}s", timeout.as_secs()))
 }
 
-// ========== ИСПРАВЛЕННАЯ ФУНКЦИЯ wait_for_handshake (CRIT-4 FIX) ==========
+// Исправленная функция wait_for_handshake (CRIT-4)
 async fn wait_for_handshake(
     dll: Arc<WireGuardDll>,
     adapter: Arc<Mutex<Option<WireGuardAdapterHandle>>>,
@@ -924,7 +934,6 @@ async fn wait_for_handshake(
     }
     Err("No handshake within timeout".into())
 }
-// ============================================================================
 
 fn current_unix_secs() -> u64 {
     std::time::SystemTime::now()
