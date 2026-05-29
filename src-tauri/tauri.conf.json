@@ -16,10 +16,8 @@
         "open": true
       },
       "fs": {
-        "all": true,
-        "scope": [
-          "**"
-        ]
+        "all": false,
+        "scope": ["$APPDATA/GameAccelerator/**", "$RESOURCE/**"]
       }
     },
     "bundle": {
@@ -44,7 +42,7 @@
       }
     },
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost https://ipc.localhost ; img-src 'self' data: asset: https://asset.localhost ; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-eval'"
+      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost https://ipc.localhost ; img-src 'self' data: asset: https://asset.localhost ; style-src 'self' 'unsafe-inline'; script-src 'self'"
     },
     "windows": [
       {
@@ -60,7 +58,10 @@
       "iconAsTemplate": true
     },
     "updater": {
-      "active": false
+      "active": true,
+      "endpoints": ["https://github.com/beatzip/sd-wan-gaming-client/releases/latest/download/latest.json"],
+      "dialog": true,
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEI2OTZFOENDM0ZBOEZGMjgKUldRby82Zy96T2lXdG5kbjBwcWJPSEE3dlZNbzNQYUEvak9zZVU0Q0Y1MmkwZlBxdmluRTRHQnEK"
     }
   }
 }
