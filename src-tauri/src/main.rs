@@ -107,7 +107,7 @@ fn run_app() -> Result<(), Box<dyn std::error::Error>> {
             let handle = app.handle();
 
             // ── Resolve + load DLL ──────────────────────────────────────────
-            let dll_path = resolve_dll_path(handle, "wireguard.dll");
+            let dll_path = resolve_dll_path(handle, "wireguard.dll")
                 .map_err(|e| format!("wireguard.dll not found: {}", e))?;
             tracing::info!("WireGuard DLL path: {:?}", dll_path);
 
