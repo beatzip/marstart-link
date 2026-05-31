@@ -1,7 +1,7 @@
 //! CRIT-5 fix: Secure key storage via Windows Credential Manager.
 
 use base64::Engine;
-use keyring::Entry; // <-- добавить
+use keyring::Entry;
 
 const KEYRING_SERVICE: &str = "game-accelerator-wg-key";
 
@@ -46,7 +46,6 @@ pub fn keyring_delete(profile_id: String) -> Result<(), String> {
     let entry = Entry::new(KEYRING_SERVICE, &profile_id)
         .map_err(|e| format!("keyring::Entry::new failed: {e}"))?;
     match entry.delete_password() {
-        // <-- исправлено
         Ok(_) => {
             tracing::info!(profile_id = %profile_id, "Private key removed from OS credential manager");
             Ok(())

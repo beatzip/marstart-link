@@ -8,7 +8,8 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=src-tauri.manifest");
     println!("cargo:rerun-if-changed=tauri.conf.json");
-    println!("cargo:rerun-if-changed=src-tauri/resources");
+    println!("cargo:rerun-if-changed=icons");
+    println!("cargo:rerun-if-changed=resources");
 
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_else(|_| "x86_64".to_string());
 

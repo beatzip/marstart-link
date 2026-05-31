@@ -1,0 +1,14 @@
+[[permission]]
+identifier = "allow-app-commands"
+description = "Tunnel control and OS keyring commands used by the React UI"
+commands.allow = [
+  "tunnel_apply_config",
+  "tunnel_disconnect",
+  "tunnel_get_status",
+  "tunnel_get_stats",
+  "tunnel_get_diagnostics",
+  "tunnel_clear_reconnect_flag",
+  "keyring_set",
+  "keyring_get",
+  "keyring_delete",
+]

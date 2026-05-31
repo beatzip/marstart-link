@@ -6,3 +6,21 @@ build/
 *.msi
 *.exe
 *.pdb
+
+# Tauri signing keys (use GitHub secrets: TAURI_PRIVATE_KEY)
+tauri.key
+**/tauri.key
+src-tauri/tauri.key
+
+# Downloaded WireGuard / Wintun SDK artifacts
+src-tauri/sdk/
+
+# Bundled DLLs (produced by CI or scripts/prepare-resources.ps1)
+src-tauri/resources/*.dll
+
+# Local tooling / build logs
+.tools/
+cargo-*.log
+
+# Keep icons in git (required for tauri build / CI)
+!src-tauri/icons/

@@ -6,7 +6,10 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "prepare:resources": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-resources.ps1",
+    "tauri:build": "npm run prepare:resources && tauri build"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
