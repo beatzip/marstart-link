@@ -65,14 +65,6 @@ fn main() {
         &wintun_candidates,
     );
 
-    // Compile Windows resources only on Windows
-    #[cfg(target_os = "windows")]
-    {
-        let mut res = winres::WindowsResource::new();
-        res.set_manifest_file("src-tauri.manifest");
-        res.compile().expect("Failed to compile Windows resources");
-    }
-
     tauri_build::build();
 
     println!("cargo:warning=build.rs completed successfully");
