@@ -964,7 +964,7 @@ fn power_monitor_thread(reconnect_flag: Arc<AtomicBool>) {
             None,
             None,
         );
-        if hwnd.0 == 0 {
+        if hwnd.0.is_null() {
             tracing::warn!("PowerMonitor: CreateWindowExW returned NULL");
             return;
         }
@@ -990,8 +990,7 @@ fn power_monitor_thread(_reconnect_flag: Arc<AtomicBool>) {}
 // ============================================================================
 // M-6: Route change monitor (polling)
 // ============================================================================
-pub fn spawn_route_monitor(runtime: Arc<Mutex<Option<TunnelRuntime>>>, dll: Arc<WireGuardDll>) {
-    let _ = dll;
+pub fn spawn_route_monitor(runtime: Arc<Mutex<Option<TunnelRuntime>>>, _dll: Arc<WireGuardDll>) {
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(Duration::from_secs(ROUTE_MONITOR_INTERVAL_SECS)).await;
@@ -1481,7 +1480,7 @@ fn run_powershell(script: &str) -> Result<(), String> {
 // ============================================================================
 // Cleanup runtime
 // ============================================================================
-fn cleanup_runtime(dll: &WireGuardDll, rt: &mut TunnelRuntime) {
+fn cleanup_runtime(_dll: &WireGuardDll, rt: &mut TunnelRuntime) {
     if let Some(addr) = rt.assigned_address.take() {
         remove_interface_address(rt.interface_index, addr.ip, addr.prefix);
         tracing::info!("Removed IP {}/{}", addr.ip, addr.prefix);
@@ -1502,5 +1501,4 @@ fn cleanup_runtime(dll: &WireGuardDll, rt: &mut TunnelRuntime) {
         }
         tracing::info!("Deleted bypass host route");
     }
-    let _ = dll;
 }

@@ -63,6 +63,10 @@ jobs:
             Write-Error "Frontend build failed: dist/index.html missing"
             exit 1
           }
+          if (!(Test-Path "src-tauri/icons/icon.ico")) {
+            Write-Error "Tauri icons missing: run from full repo (src-tauri/icons/)"
+            exit 1
+          }
 
       - name: Download SDKs (WireGuard + Wintun)
         shell: pwsh
@@ -85,17 +89,28 @@ jobs:
           Copy-Item $wt.FullName -Destination "src-tauri/resources/wintun.dll" -Force
           Write-Host "DLLs copied to src-tauri/resources/"
 
+      - name: Verify bundled resources
+        shell: pwsh
+        run: |
+          foreach ($dll in @('wireguard.dll', 'wintun.dll')) {
+            $path = Join-Path 'src-tauri/resources' $dll
+            if (!(Test-Path $path)) {
+              Write-Error "Missing bundled resource: $path"
+              exit 1
+            }
+          }
+
       - name: Rust fmt check
         working-directory: src-tauri
         run: cargo fmt --all -- --check
 
       - name: Cargo clippy
         working-directory: src-tauri
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --all-targets --all-features --locked -- -D warnings
 
       - name: Cargo check
         working-directory: src-tauri
-        run: cargo check --release --verbose
+        run: cargo check --release --locked --verbose
 
       - name: Build Tauri App
         uses: tauri-apps/tauri-action@v0
