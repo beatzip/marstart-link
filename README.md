@@ -4,7 +4,7 @@
 
 **Низколатентный SD-WAN / Gaming VPN клиент для Windows**
 
-Умная маршрутизация игрового трафика для снижения пинга, повышения стабильности соединения и уменьшения потерь пакетов.
+Умная маршрутизация игрового трафика для снижения задержки, повышения стабильности соединения и уменьшения потерь пакетов.
 
 [Русская версия](#-русская-версия) | [English version](#-english-version)
 
@@ -28,13 +28,13 @@
 
 **Game Accelerator** — это Windows-клиент для игрового VPN / SD-WAN, созданный для сценариев, где важны:
 
-* минимальный пинг;
+* минимальная задержка;
 * стабильный маршрут;
-* низкая задержка;
+* низкий jitter;
 * приоритет игрового трафика;
 * split tunneling.
 
-Проект ориентирован на игровые сценарии вроде:
+Проект ориентирован на онлайн-игры и сценарии, где важны стабильность и предсказуемость соединения:
 
 * CS2
 * Valorant
@@ -43,7 +43,7 @@
 * Warzone
 * PUBG
 * Fortnite
-* и других онлайн-игр.
+* другие онлайн-игры
 
 ---
 
@@ -51,8 +51,8 @@
 
 ### ✅ Нативная поддержка WireGuard-NT
 
-* максимальная производительность;
-* минимальные overhead;
+* высокая производительность;
+* минимальные накладные расходы;
 * работа через Windows networking stack.
 
 ### ✅ Парсинг WireGuard-конфигураций
@@ -74,7 +74,7 @@
 * добавление маршрутов через Windows IP Helper API;
 * игровой трафик через туннель;
 * остальной трафик напрямую;
-* подготовка split tunneling.
+* база для split tunneling.
 
 ### ✅ Adapter IP assignment
 
@@ -86,7 +86,7 @@
 
 * базовая DNS-интеграция;
 * подготовка tunnel DNS;
-* уменьшение риска DNS leak.
+* снижение риска DNS leak.
 
 ### ✅ Статистика соединения
 
@@ -113,13 +113,13 @@
 
 ## ✨ Основные возможности
 
-* **Низкий пинг** — маршрутизация через собственный VPS
+* **Низкая задержка** — маршрутизация через собственный VPS
 * **Split tunneling** — только игра через VPN
-* **Контроль туннелей** — запуск, остановка, статистика
+* **Контроль туннеля** — запуск, остановка, статистика
 * **Профили серверов** — быстрое переключение между VPS
-* **Минималистичный UI** — быстрый современный интерфейс
+* **Минималистичный UI** — современный интерфейс без лишнего
 * **Windows-first подход** — оптимизация под Windows 10 / 11
-* **WireGuard-NT** — высокая скорость и стабильность
+* **WireGuard-NT** — скорость и стабильность
 * **Низкие накладные расходы** — минимальная нагрузка на систему
 
 ---
@@ -154,7 +154,7 @@
 * Windows 10 / 11 (64-bit)
 * Node.js
 * Rust toolchain
-* Собственный VPS с WireGuard
+* собственный VPS с WireGuard
 
 ---
 
@@ -214,7 +214,7 @@ PersistentKeepalive = 25
 
 ### 📌 Планируется
 
-* графики ping/jitter/loss;
+* графики ping / jitter / loss;
 * realtime monitoring;
 * auto route selection;
 * multi-hop;
@@ -280,13 +280,13 @@ MIT License.
 
 **Game Accelerator** is a Windows gaming VPN / SD-WAN client focused on:
 
-* low ping;
-* stable routing;
 * low latency;
+* stable routing;
+* low jitter;
 * game traffic prioritization;
 * split tunneling.
 
-Designed for games like:
+Designed for online games and scenarios where connection stability matters:
 
 * CS2
 * Valorant
@@ -295,7 +295,7 @@ Designed for games like:
 * Warzone
 * PUBG
 * Fortnite
-* and other online games.
+* other online games
 
 ---
 
@@ -369,7 +369,7 @@ The project already includes:
 
 * **Low latency** — routing through your VPS
 * **Split tunneling** — only games use VPN
-* **Tunnel control** — start/stop/statistics
+* **Tunnel control** — start / stop / statistics
 * **Server profiles** — fast VPS switching
 * **Minimal UI** — lightweight modern interface
 * **Windows-first design** — optimized for Windows 10 / 11
@@ -468,7 +468,7 @@ PersistentKeepalive = 25
 
 ### 📌 Planned
 
-* ping/jitter/loss graphs;
+* ping / jitter / loss graphs;
 * realtime monitoring;
 * auto route selection;
 * multi-hop;
@@ -507,7 +507,7 @@ Especially useful areas:
 * Windows networking;
 * Rust backend;
 * Tauri frontend;
-* UI/UX improvements;
+* UI / UX improvements;
 * routing debugging.
 
 ---
