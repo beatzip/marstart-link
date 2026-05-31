@@ -964,7 +964,7 @@ fn power_monitor_thread(reconnect_flag: Arc<AtomicBool>) {
             None,
             None,
         );
-        if hwnd.0.is_null() {
+        if hwnd.0 == 0 {
             tracing::warn!("PowerMonitor: CreateWindowExW returned NULL");
             return;
         }
