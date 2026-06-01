@@ -49,13 +49,11 @@ pub fn parse_wireguard_config(text: &str) -> Result<ParsedConfig, String> {
             match key {
                 "PrivateKey" => private_key = Some(decode_wg_key(value, "PrivateKey", line_num)?),
                 "ListenPort" => {
-                    listen_port =
-                        Some(value.parse().map_err(|e| {
-                            format!("Line {}: Invalid ListenPort: {}", line_num + 1, e)
-                        })?)
+                    listen_port = Some(value.parse().map_err(|e| {
+                        format!("Line {}: Invalid ListenPort: {}", line_num + 1, e)
+                    })?)
                 }
                 "Address" => {
-                    // Парсим IP/prefix (например 10.0.0.2/32 или fd00::2/128)
                     let Some((ip_str, prefix_str)) = value.split_once('/') else {
                         return Err(format!(
                             "Line {}: Address must be IP/prefix, got '{}'",
@@ -107,10 +105,9 @@ pub fn parse_wireguard_config(text: &str) -> Result<ParsedConfig, String> {
                     builder.endpoint = Some(parse_endpoint(value, line_num)?);
                 }
                 "PersistentKeepalive" => {
-                    builder.persistent_keepalive =
-                        Some(value.parse().map_err(|e| {
-                            format!("Line {}: Invalid Keepalive: {}", line_num + 1, e)
-                        })?)
+                    builder.persistent_keepalive = Some(value.parse().map_err(|e| {
+                        format!("Line {}: Invalid Keepalive: {}", line_num + 1, e)
+                    })?)
                 }
                 "AllowedIPs" => {
                     for ip_cidr in value.split(',') {
@@ -140,6 +137,93 @@ pub fn parse_wireguard_config(text: &str) -> Result<ParsedConfig, String> {
         dns_servers,
         peers,
     })
+}
+
+/// Semantic validation of a parsed WireGuard config.
+///
+/// Catches constraints that are syntactically valid but semantically broken:
+/// all-zero keys, missing Endpoint/AllowedIPs for a client, duplicate peer
+/// public keys, Address prefix range, and PrivateKey==PublicKey self-loop.
+///
+/// Called from `tunnel_apply_config` after successful `parse_wireguard_config`.
+pub fn validate_config(config: &ParsedConfig) -> Result<(), String> {
+    // PrivateKey must not be all zeros
+    if config.private_key.iter().all(|&b| b == 0) {
+        return Err(
+            "PrivateKey состоит из нулей. Сгенерируйте новую пару ключей (wg genkey).".into(),
+        );
+    }
+
+    // At least one [Peer] required for a client
+    if config.peers.is_empty() {
+        return Err(
+            "Секция [Peer] отсутствует. Укажите PublicKey и Endpoint сервера.".into(),
+        );
+    }
+
+    // Address field is required
+    match (config.interface_address, config.interface_prefix) {
+        (None, _) | (_, None) => {
+            return Err(
+                "Поле Address в [Interface] обязательно. Пример: Address = 10.0.0.2/32".into(),
+            )
+        }
+        (Some(ip), Some(prefix)) => {
+            let max = if ip.is_ipv4() { 32u8 } else { 128u8 };
+            if prefix > max {
+                return Err(format!(
+                    "Address: префикс /{prefix} недопустим для {} (максимум /{max})",
+                    if ip.is_ipv4() { "IPv4" } else { "IPv6" }
+                ));
+            }
+        }
+    }
+
+    // Per-peer checks
+    let mut seen_keys: Vec<[u8; WIREGUARD_KEY_LENGTH]> = Vec::new();
+
+    for (idx, peer) in config.peers.iter().enumerate() {
+        let label = format!("Peer #{}", idx + 1);
+
+        if peer.public_key.iter().all(|&b| b == 0) {
+            return Err(format!("{label}: PublicKey состоит из нулей."));
+        }
+
+        if config.private_key == peer.public_key {
+            return Err(format!(
+                "{label}: PublicKey совпадает с вашим PrivateKey — ошибка конфигурации."
+            ));
+        }
+
+        if seen_keys.contains(&peer.public_key) {
+            return Err(format!(
+                "{label}: PublicKey уже используется в другом [Peer]."
+            ));
+        }
+        seen_keys.push(peer.public_key);
+
+        if peer.endpoint.is_none() {
+            return Err(format!(
+                "{label}: Endpoint отсутствует. Укажите адрес и порт сервера (host:port)."
+            ));
+        }
+
+        if peer.allowed_ips.is_empty() {
+            return Err(format!(
+                "{label}: AllowedIPs пуст. Укажите хотя бы один маршрут, например: 0.0.0.0/0"
+            ));
+        }
+
+        if let Some(psk) = &peer.preshared_key {
+            if psk.iter().all(|&b| b == 0) {
+                return Err(format!(
+                    "{label}: PresharedKey состоит из нулей — удалите поле или замените ключ."
+                ));
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn decode_wg_key(

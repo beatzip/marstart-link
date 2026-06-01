@@ -98,7 +98,14 @@ jobs:
               Write-Error "Missing bundled resource: $path"
               exit 1
             }
+            $sizeKB = [math]::Round((Get-Item $path).Length / 1KB, 1)
+            Write-Host "${dll}: ${sizeKB} KB"
+            if ((Get-Item $path).Length -lt 100KB) {
+              Write-Error "${dll} is suspiciously small (${sizeKB} KB < 100 KB) — likely a stub or corrupt file"
+              exit 1
+            }
           }
+          Write-Host "All DLL size checks passed."
 
       - name: Rust fmt check
         working-directory: src-tauri
@@ -124,3 +131,24 @@ jobs:
           releaseDraft: false
           prerelease: false
           projectPath: ./src-tauri
+
+      - name: Verify installer artifact
+        shell: pwsh
+        run: |
+          $bundles = @(
+            Get-ChildItem "src-tauri/target/release/bundle" -Recurse -Include "*.exe","*.msi" `
+              | Where-Object { $_.Name -notlike "*debug*" }
+          )
+          if ($bundles.Count -eq 0) {
+            Write-Error "No installer found in src-tauri/target/release/bundle/"
+            exit 1
+          }
+          foreach ($f in $bundles) {
+            $sizeMB = [math]::Round($f.Length / 1MB, 2)
+            Write-Host "Installer: $($f.Name)  ($sizeMB MB)"
+            if ($f.Length -lt 5MB) {
+              Write-Error "$($f.Name) is only ${sizeMB} MB — DLLs are likely missing from the bundle"
+              exit 1
+            }
+          }
+          Write-Host "Installer size check passed."
