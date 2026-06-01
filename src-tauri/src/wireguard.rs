@@ -145,7 +145,7 @@ pub enum WireGuardAdapterState {
     Up = 1,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TunnelPhase {
     #[default]
     Idle,
@@ -154,6 +154,45 @@ pub enum TunnelPhase {
     Connected,
     Disconnecting,
     Failed,
+}
+
+impl TunnelPhase {
+    /// Convert to string for frontend serialization
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TunnelPhase::Idle => "idle",
+            TunnelPhase::ApplyingConfig => "connecting",
+            TunnelPhase::WaitingHandshake => "connected",
+            TunnelPhase::Connected => "connected",
+            TunnelPhase::Disconnecting => "disconnecting",
+            TunnelPhase::Failed => "idle",
+        }
+    }
+}
+
+impl Serialize for TunnelPhase {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for TunnelPhase {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Ok(match s.as_str() {
+            "idle" => TunnelPhase::Idle,
+            "connecting" => TunnelPhase::ApplyingConfig,
+            "connected" => TunnelPhase::Connected,
+            "disconnecting" => TunnelPhase::Disconnecting,
+            _ => TunnelPhase::Idle,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
