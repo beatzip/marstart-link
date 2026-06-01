@@ -146,6 +146,7 @@ pub fn parse_wireguard_config(text: &str) -> Result<ParsedConfig, String> {
 /// public keys, Address prefix range, and PrivateKey==PublicKey self-loop.
 ///
 /// Called from `tunnel_apply_config` after successful `parse_wireguard_config`.
+#[allow(dead_code)]
 pub fn validate_config(config: &ParsedConfig) -> Result<(), String> {
     // PrivateKey must not be all zeros
     if config.private_key.iter().all(|&b| b == 0) {
