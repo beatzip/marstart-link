@@ -8,7 +8,7 @@ mod wireguard_parser;
 mod wireguard_serializer;
 
 use std::sync::{Arc, Mutex};
-use tauri::{Emitter, Manager, State};
+use tauri::State;
 
 #[derive(Clone)]
 struct AppState {
