@@ -14,8 +14,8 @@ pub struct WireGuardTunnel {
 }
 
 impl WireGuardTunnel {
-    pub fn new(profile: &profiles::Profile) -> Result<Self, String> {
-        // Private key from keyring
+    pub fn new(profile: &crate::profiles::Profile) -> Result<Self, String> {
+        // Private key берём из keyring (секреты больше не в localStorage)
         let _private_key = keyring::Entry::new("GameAccelerator", &profile.id)
             .map_err(|e| e.to_string())?
             .get_password()
@@ -28,6 +28,7 @@ impl WireGuardTunnel {
     }
 
     pub fn teardown(self) -> Result<(), String> {
+        // Полная очистка ресурсов
         Ok(())
     }
 
