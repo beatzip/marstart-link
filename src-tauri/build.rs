@@ -65,6 +65,7 @@ fn main() {
         &wintun_candidates,
     );
 
+    // Build Tauri configuration (does NOT fail if DLLs are missing)
     tauri_build::build();
 
     println!("cargo:warning=build.rs completed successfully");
@@ -82,11 +83,22 @@ fn copy_dll_if_exists(
 
         if src.exists() {
             let dest = resources_dir.join(dll_name);
-            fs::copy(&src, &dest).unwrap_or_else(|e| {
-                panic!("Failed to copy {} from {}: {}", dll_name, src.display(), e)
-            });
-            println!("cargo:warning=Copied {} from {}", dll_name, src.display());
-            return;
+            match fs::copy(&src, &dest) {
+                Ok(_) => {
+                    println!("cargo:warning=Copied {} from {}", dll_name, src.display());
+                    return;
+                }
+                Err(e) => {
+                    println!(
+                        "cargo:warning=Failed to copy {} from {}: {}",
+                        dll_name,
+                        src.display(),
+                        e
+                    );
+                    // Continue to next candidate
+                    continue;
+                }
+            }
         }
     }
 
