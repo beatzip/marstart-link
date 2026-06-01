@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/permissions.json",
+  "default": {
+    "allow": [],
+    "deny": []
+  }
+}
