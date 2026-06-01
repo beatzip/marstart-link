@@ -1,56 +1,14 @@
-//! CRIT-5 fix: Secure key storage via Windows Credential Manager.
+use serde::{Deserialize, Serialize};
 
-use base64::Engine;
-use keyring::Entry;
-
-const KEYRING_SERVICE: &str = "game-accelerator-wg-key";
-
-#[tauri::command]
-pub fn keyring_set(profile_id: String, private_key: String) -> Result<(), String> {
-    if private_key.is_empty() {
-        return Err("private_key must not be empty".into());
-    }
-
-    let decoded = base64::engine::general_purpose::STANDARD
-        .decode(private_key.trim())
-        .map_err(|e| format!("Invalid Base64 private key: {e}"))?;
-    if decoded.len() != 32 {
-        return Err(format!(
-            "Private key must decode to 32 bytes, got {}",
-            decoded.len()
-        ));
-    }
-
-    let entry = Entry::new(KEYRING_SERVICE, &profile_id)
-        .map_err(|e| format!("keyring::Entry::new failed: {e}"))?;
-    entry
-        .set_password(private_key.trim())
-        .map_err(|e| format!("keyring set_password failed: {e}"))?;
-
-    tracing::info!(profile_id = %profile_id, "Private key stored in OS credential manager");
-    Ok(())
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Profile {
+    pub id: String,
+    // другие поля профиля
 }
 
-#[tauri::command]
-pub fn keyring_get(profile_id: String) -> Result<String, String> {
-    let entry = Entry::new(KEYRING_SERVICE, &profile_id)
-        .map_err(|e| format!("keyring::Entry::new failed: {e}"))?;
-    let key = entry
-        .get_password()
-        .map_err(|e| format!("keyring get_password failed (profile not found?): {e}"))?;
-    Ok(key)
-}
-
-#[tauri::command]
-pub fn keyring_delete(profile_id: String) -> Result<(), String> {
-    let entry = Entry::new(KEYRING_SERVICE, &profile_id)
-        .map_err(|e| format!("keyring::Entry::new failed: {e}"))?;
-    match entry.delete_password() {
-        Ok(_) => {
-            tracing::info!(profile_id = %profile_id, "Private key removed from OS credential manager");
-            Ok(())
-        }
-        Err(keyring::Error::NoEntry) => Ok(()),
-        Err(e) => Err(format!("keyring delete_password failed: {e}")),
-    }
+pub fn load_profile(id: &str) -> Result<Profile, String> {
+    // Заглушка — в реальности загружай из файла/базы
+    Ok(Profile {
+        id: id.to_string(),
+    })
 }
