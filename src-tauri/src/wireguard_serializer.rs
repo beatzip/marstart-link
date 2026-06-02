@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use crate::wireguard_config::*;
 use std::mem::size_of;
 use std::net::IpAddr;

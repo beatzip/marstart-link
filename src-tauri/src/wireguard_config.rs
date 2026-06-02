@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use std::net::SocketAddr;
 use windows::Win32::Networking::WinSock::{
     ADDRESS_FAMILY, AF_INET, AF_INET6, IN6_ADDR, IN_ADDR, IN_ADDR_0, SOCKADDR_INET,

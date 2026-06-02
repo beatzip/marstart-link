@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use crate::wireguard_config::{ParsedAllowedIp, ParsedConfig, ParsedPeer, WIREGUARD_KEY_LENGTH};
 use base64::{engine::general_purpose, Engine as _};
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};

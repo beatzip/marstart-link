@@ -10,6 +10,7 @@ pub enum TunnelStatus {
 }
 
 pub struct WireGuardTunnel {
+    #[allow(dead_code)]
     adapter: String,
     status: TunnelStatus,
 }
