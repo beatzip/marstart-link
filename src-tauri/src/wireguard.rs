@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize, Deserialize)]
+#[serde(tag = "status", content = "message")]
 pub enum TunnelStatus {
     Disconnected,
     Connecting,
