@@ -50,9 +50,10 @@ pub fn parse_wireguard_config(text: &str) -> Result<ParsedConfig, String> {
             match key {
                 "PrivateKey" => private_key = Some(decode_wg_key(value, "PrivateKey", line_num)?),
                 "ListenPort" => {
-                    listen_port = Some(value.parse().map_err(|e| {
-                        format!("Line {}: Invalid ListenPort: {}", line_num + 1, e)
-                    })?)
+                    listen_port =
+                        Some(value.parse().map_err(|e| {
+                            format!("Line {}: Invalid ListenPort: {}", line_num + 1, e)
+                        })?)
                 }
                 "Address" => {
                     let Some((ip_str, prefix_str)) = value.split_once('/') else {
@@ -106,9 +107,10 @@ pub fn parse_wireguard_config(text: &str) -> Result<ParsedConfig, String> {
                     builder.endpoint = Some(parse_endpoint(value, line_num)?);
                 }
                 "PersistentKeepalive" => {
-                    builder.persistent_keepalive = Some(value.parse().map_err(|e| {
-                        format!("Line {}: Invalid Keepalive: {}", line_num + 1, e)
-                    })?)
+                    builder.persistent_keepalive =
+                        Some(value.parse().map_err(|e| {
+                            format!("Line {}: Invalid Keepalive: {}", line_num + 1, e)
+                        })?)
                 }
                 "AllowedIPs" => {
                     for ip_cidr in value.split(',') {
@@ -158,9 +160,7 @@ pub fn validate_config(config: &ParsedConfig) -> Result<(), String> {
 
     // At least one [Peer] required for a client
     if config.peers.is_empty() {
-        return Err(
-            "Секция [Peer] отсутствует. Укажите PublicKey и Endpoint сервера.".into(),
-        );
+        return Err("Секция [Peer] отсутствует. Укажите PublicKey и Endpoint сервера.".into());
     }
 
     // Address field is required

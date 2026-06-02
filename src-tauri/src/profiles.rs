@@ -6,7 +6,5 @@ pub struct Profile {
 }
 
 pub fn load_profile(id: &str) -> Result<Profile, String> {
-    Ok(Profile {
-        id: id.to_string(),
-    })
+    Ok(Profile { id: id.to_string() })
 }
