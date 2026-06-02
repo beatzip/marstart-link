@@ -1,3 +1,0 @@
-# Match GitHub Actions (x86_64-pc-windows-msvc). Remove this file to use the host default target.
-[build]
-target = "x86_64-pc-windows-msvc"
