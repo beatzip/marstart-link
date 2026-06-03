@@ -34,11 +34,12 @@ impl<T: Clone> RingBuffer<T> {
 
     pub fn push(&self, value: T) {
         let mut g = self.inner.write();
-        let idx = (g.head + g.len) % g.cap;
+        let head = g.head;
+        let idx = (head + g.len) % g.cap;
         if g.len == g.cap {
             // overwrite oldest
-            g.data[g.head] = Some(value);
-            g.head = (g.head + 1) % g.cap;
+            g.data[head] = Some(value);
+            g.head = (head + 1) % g.cap;
         } else {
             g.data[idx] = Some(value);
             g.len += 1;

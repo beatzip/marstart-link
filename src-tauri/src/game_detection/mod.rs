@@ -138,7 +138,7 @@ impl GameDetector {
         self.last_scan_ms.store(now, Ordering::Relaxed);
         self.scan_count.fetch_add(1, Ordering::Relaxed);
         let mut sys = System::new();
-        sys.refresh_processes(ProcessesToUpdate::All);
+        sys.refresh_processes(ProcessesToUpdate::All, true);
         let names: Vec<String> = sys
             .processes()
             .values()

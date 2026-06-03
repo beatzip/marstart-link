@@ -13,7 +13,7 @@ use parking_lot::RwLock;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -75,19 +75,17 @@ struct RouteInner {
 }
 
 pub struct RouteManager {
-    metrics: MetricsStore,
     snapshot: Arc<RouteSnapshotEngine>,
     inner: RwLock<RouteInner>,
     last_switch_ms: AtomicU64,
     started: Instant,
     cooldown_ms: AtomicU64,
-    switch_margin: AtomicU64,
+    switch_margin: AtomicU32,
 }
 
 impl RouteManager {
-    pub fn new(metrics: MetricsStore, snapshot: Arc<RouteSnapshotEngine>) -> Arc<Self> {
+    pub fn new(_metrics: MetricsStore, snapshot: Arc<RouteSnapshotEngine>) -> Arc<Self> {
         Arc::new(Self {
-            metrics,
             snapshot,
             inner: RwLock::new(RouteInner {
                 candidates: HashMap::new(),
@@ -96,7 +94,7 @@ impl RouteManager {
             last_switch_ms: AtomicU64::new(0),
             started: Instant::now(),
             cooldown_ms: AtomicU64::new(DEFAULT_COOLDOWN_MS),
-            switch_margin: AtomicU64::new(DEFAULT_SWITCH_MARGIN.to_bits()),
+            switch_margin: AtomicU32::new(DEFAULT_SWITCH_MARGIN.to_bits()),
         })
     }
 
@@ -142,7 +140,7 @@ impl RouteManager {
     }
 
     pub fn current(&self) -> Option<String> {
-        self.snapshot.current().selected
+        self.snapshot.current().selected.clone()
     }
 
     pub fn health_of(&self, id: &str) -> Health {
@@ -290,7 +288,7 @@ impl RouteManager {
         let g = self.inner.read();
         RouteState {
             candidates: g.candidates.values().cloned().collect(),
-            current: self.snapshot.current().selected,
+            current: self.snapshot.current().selected.clone(),
             manual_override: g.manual_override.clone(),
             last_switch_ms: self.last_switch_ms.load(Ordering::Relaxed),
             cooldown_ms: self.cooldown_ms.load(Ordering::Relaxed),

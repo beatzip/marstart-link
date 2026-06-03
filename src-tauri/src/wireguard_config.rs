@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 use std::net::SocketAddr;
+
+#[cfg(target_os = "windows")]
 use windows::Win32::Networking::WinSock::{
     ADDRESS_FAMILY, AF_INET, AF_INET6, IN6_ADDR, IN_ADDR, IN_ADDR_0, SOCKADDR_INET,
 };
@@ -56,8 +58,9 @@ pub struct ParsedAllowedIp {
 }
 
 // ============================================================================
-// NATIVE ABI (WireGuard NT — 1:1 с wireguard.h)
+// NATIVE ABI (Windows only)
 // ============================================================================
+#[cfg(target_os = "windows")]
 #[repr(C, align(8))]
 #[derive(Clone, Copy)]
 pub struct WireguardInterface {
@@ -69,6 +72,7 @@ pub struct WireguardInterface {
                                        // total = 80 bytes
 }
 
+#[cfg(target_os = "windows")]
 #[repr(C, align(8))]
 #[derive(Clone, Copy)]
 pub struct WireguardPeer {
@@ -77,7 +81,7 @@ pub struct WireguardPeer {
     pub public_key: [u8; 32],      // +8    32b
     pub preshared_key: [u8; 32],   // +40   32b
     pub persistent_keepalive: u16, // +72   2b
-    // +74: 2b implicit C padding (Reserved2) — repr(C) вставит автоматически
+    // +74: 2b implicit C padding (Reserved2) — repr(C) inserts it automatically
     pub endpoint: SOCKADDR_INET, // +76   28b
     pub tx_bytes: u64,           // +104  8b
     pub rx_bytes: u64,           // +112  8b
@@ -86,6 +90,7 @@ pub struct WireguardPeer {
                                  // +132: 4b trailing padding → total = 136 bytes
 }
 
+#[cfg(target_os = "windows")]
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub union WireguardIpAddress {
@@ -93,6 +98,7 @@ pub union WireguardIpAddress {
     pub v6: IN6_ADDR,
 }
 
+#[cfg(target_os = "windows")]
 #[repr(C, align(8))]
 #[derive(Clone, Copy)]
 pub struct WireguardAllowedIp {
@@ -104,13 +110,8 @@ pub struct WireguardAllowedIp {
 
 // ============================================================================
 // HELPER: SocketAddr → SOCKADDR_INET
-//
-// ✅ FIX: S_addr must use from_ne_bytes (NOT from_be_bytes).
-//   S_addr stores IP in network byte order in memory.
-//   On x86 (LE), from_ne_bytes([0xC0,0xA8,0x01,0x01]) = 0x0101A8C0,
-//   which when stored in LE memory gives bytes [0xC0,0xA8,0x01,0x01] ← correct.
-//   from_be_bytes would produce 0xC0A80101, stored as [0x01,0x01,0xA8,0xC0] ← wrong!
 // ============================================================================
+#[cfg(target_os = "windows")]
 pub fn socket_addr_to_sockaddr_inet(addr: &SocketAddr) -> SOCKADDR_INET {
     let mut sockaddr: SOCKADDR_INET = unsafe { std::mem::zeroed() };
 
@@ -146,7 +147,7 @@ pub fn socket_addr_to_sockaddr_inet(addr: &SocketAddr) -> SOCKADDR_INET {
 // ============================================================================
 // ABI VALIDATION TESTS
 // ============================================================================
-#[cfg(test)]
+#[cfg(all(test, target_os = "windows"))]
 mod abi_tests {
     use super::*;
     use memoffset::offset_of;
@@ -198,8 +199,6 @@ mod abi_tests {
 
     #[test]
     fn test_byte_order_fix() {
-        // Verify that from_ne_bytes preserves network byte order in memory
-        // For IP 192.168.1.1 = [0xC0, 0xA8, 0x01, 0x01]
         let octets: [u8; 4] = [0xC0, 0xA8, 0x01, 0x01];
         let s_addr = u32::from_ne_bytes(octets);
         let stored_bytes = s_addr.to_ne_bytes();

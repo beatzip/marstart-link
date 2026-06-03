@@ -10,7 +10,7 @@ use crate::metrics::MetricsStore;
 use crate::snapshot::{Health, Snapshot};
 use parking_lot::RwLock;
 use policy::{
-    CooldownClass, FsmState, PolicyConfig, PolicyContext, PolicyGate, PolicyVerdict, Verdict,
+    FsmState, PolicyConfig, PolicyContext, PolicyGate, PolicyVerdict, Verdict,
 };
 use serde::Serialize;
 use stability::{StabilityHistory, StabilitySample};

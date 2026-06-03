@@ -131,7 +131,7 @@ impl MonitorService {
         let running = Arc::clone(&self.running);
         let app_for_task = app.clone();
 
-        let handle = tauri::async_runtime::spawn(async move {
+        let handle = tokio::spawn(async move {
             tracing::info!("monitor: worker started");
             while running.load(Ordering::Relaxed) {
                 let cfg = cfg_arc.lock().clone();
@@ -203,7 +203,7 @@ where
 {
     let mut handles = Vec::with_capacity(futs.len());
     for f in futs {
-        handles.push(tauri::async_runtime::spawn(f));
+        handles.push(tokio::spawn(f));
     }
     let mut out = Vec::with_capacity(handles.len());
     for h in handles {
