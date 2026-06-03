@@ -136,8 +136,10 @@ impl RouteSnapshotEngine {
     }
 
     pub fn set_interval_ms(&self, ms: u64) {
-        self.interval_ms
-            .store(ms.clamp(MIN_INTERVAL_MS, MAX_INTERVAL_MS), Ordering::Relaxed);
+        self.interval_ms.store(
+            ms.clamp(MIN_INTERVAL_MS, MAX_INTERVAL_MS),
+            Ordering::Relaxed,
+        );
     }
 
     pub fn interval_ms(&self) -> u64 {

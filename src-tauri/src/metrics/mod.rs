@@ -145,8 +145,9 @@ impl MetricsStore {
         let mut g = self.inner.write();
         if !g.targets.contains_key(target_id) {
             let buf = RingBuffer::new(g.window);
-            g.targets.insert(target_id.to_string(), TargetSlot { buffer: buf });
-            }           
+            g.targets
+                .insert(target_id.to_string(), TargetSlot { buffer: buf });
+        }
     }
 
     pub fn remove_target(&self, target_id: &str) {
@@ -206,7 +207,9 @@ impl MetricsStore {
 
     pub fn aggregated_all(&self) -> Vec<AggregatedMetrics> {
         let ids = self.list_targets();
-        ids.into_iter().filter_map(|id| self.aggregated(&id)).collect()
+        ids.into_iter()
+            .filter_map(|id| self.aggregated(&id))
+            .collect()
     }
 }
 

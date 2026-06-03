@@ -256,10 +256,24 @@ mod tests {
     #[test]
     fn degraded_uses_separate_margin() {
         let g = PolicyGate::new();
-        let v = g.evaluate(&ctx(false, Health::Degraded, FsmState::Degraded, 0.10, 3, 9999));
+        let v = g.evaluate(&ctx(
+            false,
+            Health::Degraded,
+            FsmState::Degraded,
+            0.10,
+            3,
+            9999,
+        ));
         assert_eq!(v.verdict, Verdict::Allow);
         assert_eq!(v.class, CooldownClass::Degraded);
-        let v2 = g.evaluate(&ctx(false, Health::Degraded, FsmState::Degraded, 0.05, 3, 9999));
+        let v2 = g.evaluate(&ctx(
+            false,
+            Health::Degraded,
+            FsmState::Degraded,
+            0.05,
+            3,
+            9999,
+        ));
         assert_eq!(v2.verdict, Verdict::Block);
         let good = g.evaluate(&ctx(false, Health::Good, FsmState::Stable, 0.10, 3, 9999));
         assert_eq!(good.verdict, Verdict::Block);

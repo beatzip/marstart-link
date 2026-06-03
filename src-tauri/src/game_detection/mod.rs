@@ -195,9 +195,7 @@ impl GameDetector {
             });
             let port_packets: usize = bursts
                 .iter()
-                .filter(|(port, size, _)| {
-                    *size <= p.max_packet_size && p.udp_ports.contains(port)
-                })
+                .filter(|(port, size, _)| *size <= p.max_packet_size && p.udp_ports.contains(port))
                 .count();
             let udp_match = (port_packets as f32) >= p.burst_threshold_pps;
             let (confidence, reason) = match (proc_match, udp_match) {
@@ -339,10 +337,18 @@ mod tests {
     #[test]
     fn custom_profile_replaces_existing_with_same_id() {
         let det = GameDetector::new();
-        let mut p = det.list_profiles().into_iter().find(|p| p.id == "cs2").unwrap();
+        let mut p = det
+            .list_profiles()
+            .into_iter()
+            .find(|p| p.id == "cs2")
+            .unwrap();
         p.burst_threshold_pps = 999.0;
         det.register_profile(p);
-        let profile = det.list_profiles().into_iter().find(|p| p.id == "cs2").unwrap();
+        let profile = det
+            .list_profiles()
+            .into_iter()
+            .find(|p| p.id == "cs2")
+            .unwrap();
         assert!((profile.burst_threshold_pps - 999.0).abs() < 0.01);
     }
 

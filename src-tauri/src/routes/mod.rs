@@ -166,7 +166,8 @@ impl RouteManager {
     }
 
     pub fn set_switch_margin(&self, margin: f32) {
-        self.switch_margin.store(margin.to_bits(), Ordering::Relaxed);
+        self.switch_margin
+            .store(margin.to_bits(), Ordering::Relaxed);
     }
 
     pub fn switch_margin(&self) -> f32 {
@@ -213,10 +214,8 @@ impl RouteManager {
 
         let mut recommended: Option<String> = manual.clone();
         if recommended.is_none() {
-            let healthy: Vec<&RouteScoreView> = scores
-                .iter()
-                .filter(|s| s.health != Health::Bad)
-                .collect();
+            let healthy: Vec<&RouteScoreView> =
+                scores.iter().filter(|s| s.health != Health::Bad).collect();
             if let Some(best) = healthy.iter().min_by(|a, b| {
                 a.weighted_score
                     .partial_cmp(&b.weighted_score)
@@ -247,10 +246,16 @@ impl RouteManager {
                 EvalReason::CooldownBlocked
             } else {
                 let cur_score = current.as_ref().and_then(|id| {
-                    scores.iter().find(|s| &s.id == id).map(|s| s.weighted_score)
+                    scores
+                        .iter()
+                        .find(|s| &s.id == id)
+                        .map(|s| s.weighted_score)
                 });
                 let rec_score = recommended.as_ref().and_then(|id| {
-                    scores.iter().find(|s| &s.id == id).map(|s| s.weighted_score)
+                    scores
+                        .iter()
+                        .find(|s| &s.id == id)
+                        .map(|s| s.weighted_score)
                 });
                 match (cur_score, rec_score) {
                     (Some(cs), Some(rs)) if cs > 0.0 => {
@@ -281,7 +286,8 @@ impl RouteManager {
         if new_id == prev {
             return;
         }
-        self.last_switch_ms.store(self.elapsed_ms(), Ordering::Relaxed);
+        self.last_switch_ms
+            .store(self.elapsed_ms(), Ordering::Relaxed);
         self.snapshot.set_selected(new_id);
         self.snapshot.refresh_now();
     }

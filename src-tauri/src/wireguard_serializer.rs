@@ -27,7 +27,8 @@ mod imp {
         }
 
         // ── Interface ──────────────────────────────────────────────────────────
-        let mut iface_flags = WIREGUARD_INTERFACE_HAS_PRIVATE_KEY | WIREGUARD_INTERFACE_REPLACE_PEERS;
+        let mut iface_flags =
+            WIREGUARD_INTERFACE_HAS_PRIVATE_KEY | WIREGUARD_INTERFACE_REPLACE_PEERS;
         if config.listen_port.is_some() {
             iface_flags |= WIREGUARD_INTERFACE_HAS_LISTEN_PORT;
         }

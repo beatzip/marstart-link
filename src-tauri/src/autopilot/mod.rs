@@ -9,9 +9,7 @@ use crate::game_detection::GameSignal;
 use crate::metrics::MetricsStore;
 use crate::snapshot::{Health, Snapshot};
 use parking_lot::RwLock;
-use policy::{
-    FsmState, PolicyConfig, PolicyContext, PolicyGate, PolicyVerdict, Verdict,
-};
+use policy::{FsmState, PolicyConfig, PolicyContext, PolicyGate, PolicyVerdict, Verdict};
 use serde::Serialize;
 use stability::{StabilityHistory, StabilitySample};
 use std::collections::HashMap;
@@ -151,9 +149,7 @@ impl Autopilot {
                 (r.route_id.clone(), eff, r.health)
             })
             .collect();
-        candidates.sort_by(|a, b| {
-            a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)
-        });
+        candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
 
         let current = snap.selected.clone();
         let in_game = game.detected && game.confidence >= 0.5;
@@ -214,10 +210,7 @@ impl Autopilot {
             if let Some(latest) = samples.last() {
                 let last_ts = {
                     let g = self.inner.read();
-                    g.last_recorded_ts
-                        .get(id)
-                        .copied()
-                        .unwrap_or(i64::MIN)
+                    g.last_recorded_ts.get(id).copied().unwrap_or(i64::MIN)
                 };
                 if latest.timestamp_ms >= last_ts {
                     self.stability
@@ -621,6 +614,9 @@ mod tests {
         let d = ap.update(&snap(routes_good, Some("a")), &idle_game());
         assert_eq!(d.intent, AutopilotIntent::Switch);
         let verdict = d.verdict.as_ref().unwrap();
-        assert!(verdict.margin < 0.30, "degraded margin should be lower than stable");
+        assert!(
+            verdict.margin < 0.30,
+            "degraded margin should be lower than stable"
+        );
     }
 }
