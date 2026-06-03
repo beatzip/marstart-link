@@ -108,7 +108,7 @@ impl StabilityHistory {
         let cv_penalty = (cv * 4.0).clamp(0.0, 1.0);
         let loss_penalty = loss_freq.clamp(0.0, 1.0);
         let slope_penalty = (slope_mag / 5.0).clamp(0.0, 1.0);
-        let bad = cv_penalty * 0.4 + loss_penalty * 0.4 + slope_penalty * 0.2;
+        let bad = cv_penalty * 0.6 + loss_penalty * 0.3 + slope_penalty * 0.1;
         (1.0 - bad).clamp(0.0, 1.0)
     }
 
