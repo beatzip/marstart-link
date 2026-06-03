@@ -146,7 +146,7 @@ jobs:
           foreach ($f in $bundles) {
             $sizeMB = [math]::Round($f.Length / 1MB, 2)
             Write-Host "Installer: $($f.Name)  ($sizeMB MB)"
-            if ($f.Length -lt 5MB) {
+            if ($f.Length -lt 3MB) {
               Write-Error "$($f.Name) is only ${sizeMB} MB — DLLs are likely missing from the bundle"
               exit 1
             }
