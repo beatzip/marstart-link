@@ -146,6 +146,14 @@ impl MetricsStore {
         if !g.targets.contains_key(target_id) {
             let buf = RingBuffer::new(g.window);
             g.targets.insert(target_id.to_string(), TargetSlot { buffer: buf });
+            } else {
+                if let Some(slot) = g.targets.get(target_id) {
+                    if slot.buffer.capacity() == 0 {
+                        let buf = RingBuffer::new(g.window);
+                        g.targets.insert(target_id.to_string(), TargetSlot { buffer: buf });
+                    }
+                }
+            }           
         }
     }
 

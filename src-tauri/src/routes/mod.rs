@@ -174,6 +174,7 @@ impl RouteManager {
     }
 
     pub fn evaluate(&self) -> RouteEvaluation {
+        self.snapshot.refresh_now();
         let (candidates, manual) = {
             let g = self.inner.read();
             (
