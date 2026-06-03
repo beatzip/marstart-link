@@ -147,7 +147,6 @@ impl MetricsStore {
             let buf = RingBuffer::new(g.window);
             g.targets.insert(target_id.to_string(), TargetSlot { buffer: buf });
             }           
-        }
     }
 
     pub fn remove_target(&self, target_id: &str) {
