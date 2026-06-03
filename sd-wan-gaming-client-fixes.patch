@@ -1,0 +1,692 @@
+--- a/src/utils.rs
++++ b/src/utils.rs
+@@ -2,7 +2,10 @@
+ use std::net::Ipv4Addr;
+ use std::path::PathBuf;
+ use tauri::{AppHandle, Manager};
++
++#[cfg(target_os = "windows")]
+ use windows::Win32::NetworkManagement::IpHelper::{InitializeIpForwardEntry, MIB_IPFORWARD_ROW2};
++#[cfg(target_os = "windows")]
+ use windows::Win32::Networking::WinSock::AF_INET;
+ 
+ pub fn resolve_dll_path(handle: &AppHandle, dll_name: &str) -> Result<PathBuf, String> {
+@@ -42,6 +45,7 @@
+     Ok((ip, prefix))
+ }
+ 
++#[cfg(target_os = "windows")]
+ pub unsafe fn create_forward_row(
+     ip: Ipv4Addr,
+     prefix_len: u8,
+--- a/src/wireguard_config.rs
++++ b/src/wireguard_config.rs
+@@ -1,5 +1,7 @@
+ #![allow(dead_code)]
+ use std::net::SocketAddr;
++
++#[cfg(target_os = "windows")]
+ use windows::Win32::Networking::WinSock::{
+     ADDRESS_FAMILY, AF_INET, AF_INET6, IN6_ADDR, IN_ADDR, IN_ADDR_0, SOCKADDR_INET,
+ };
+@@ -56,8 +58,9 @@
+ }
+ 
+ // ============================================================================
+-// NATIVE ABI (WireGuard NT — 1:1 с wireguard.h)
+-// ============================================================================
++// NATIVE ABI (Windows only)
++// ============================================================================
++#[cfg(target_os = "windows")]
+ #[repr(C, align(8))]
+ #[derive(Clone, Copy)]
+ pub struct WireguardInterface {
+@@ -69,6 +72,7 @@
+                                        // total = 80 bytes
+ }
+ 
++#[cfg(target_os = "windows")]
+ #[repr(C, align(8))]
+ #[derive(Clone, Copy)]
+ pub struct WireguardPeer {
+@@ -77,7 +81,7 @@
+     pub public_key: [u8; 32],      // +8    32b
+     pub preshared_key: [u8; 32],   // +40   32b
+     pub persistent_keepalive: u16, // +72   2b
+-    // +74: 2b implicit C padding (Reserved2) — repr(C) вставит автоматически
++    // +74: 2b implicit C padding (Reserved2) — repr(C) inserts it automatically
+     pub endpoint: SOCKADDR_INET, // +76   28b
+     pub tx_bytes: u64,           // +104  8b
+     pub rx_bytes: u64,           // +112  8b
+@@ -86,6 +90,7 @@
+                                  // +132: 4b trailing padding → total = 136 bytes
+ }
+ 
++#[cfg(target_os = "windows")]
+ #[repr(C)]
+ #[derive(Clone, Copy)]
+ pub union WireguardIpAddress {
+@@ -93,6 +98,7 @@
+     pub v6: IN6_ADDR,
+ }
+ 
++#[cfg(target_os = "windows")]
+ #[repr(C, align(8))]
+ #[derive(Clone, Copy)]
+ pub struct WireguardAllowedIp {
+@@ -104,13 +110,8 @@
+ 
+ // ============================================================================
+ // HELPER: SocketAddr → SOCKADDR_INET
+-//
+-// ✅ FIX: S_addr must use from_ne_bytes (NOT from_be_bytes).
+-//   S_addr stores IP in network byte order in memory.
+-//   On x86 (LE), from_ne_bytes([0xC0,0xA8,0x01,0x01]) = 0x0101A8C0,
+-//   which when stored in LE memory gives bytes [0xC0,0xA8,0x01,0x01] ← correct.
+-//   from_be_bytes would produce 0xC0A80101, stored as [0x01,0x01,0xA8,0xC0] ← wrong!
+-// ============================================================================
++// ============================================================================
++#[cfg(target_os = "windows")]
+ pub fn socket_addr_to_sockaddr_inet(addr: &SocketAddr) -> SOCKADDR_INET {
+     let mut sockaddr: SOCKADDR_INET = unsafe { std::mem::zeroed() };
+ 
+@@ -146,7 +147,7 @@
+ // ============================================================================
+ // ABI VALIDATION TESTS
+ // ============================================================================
+-#[cfg(test)]
++#[cfg(all(test, target_os = "windows"))]
+ mod abi_tests {
+     use super::*;
+     use memoffset::offset_of;
+@@ -198,8 +199,6 @@
+ 
+     #[test]
+     fn test_byte_order_fix() {
+-        // Verify that from_ne_bytes preserves network byte order in memory
+-        // For IP 192.168.1.1 = [0xC0, 0xA8, 0x01, 0x01]
+         let octets: [u8; 4] = [0xC0, 0xA8, 0x01, 0x01];
+         let s_addr = u32::from_ne_bytes(octets);
+         let stored_bytes = s_addr.to_ne_bytes();
+--- a/src/wireguard_serializer.rs
++++ b/src/wireguard_serializer.rs
+@@ -1,197 +1,256 @@
+ #![allow(dead_code)]
+-use crate::wireguard_config::*;
+-use std::mem::size_of;
+-use std::net::IpAddr;
+-use windows::Win32::Networking::WinSock::{AF_INET, AF_INET6, IN6_ADDR, IN_ADDR, IN_ADDR_0};
+-
+-/// Serialises ParsedConfig into the binary blob for WireGuardSetConfiguration.
+-/// Layout: WireguardInterface | WireguardPeer₁ | AllowedIp₁₁ … | WireguardPeer₂ | …
+-pub fn serialize_config(config: &ParsedConfig) -> Result<Vec<u8>, String> {
+-    let mut total = size_of::<WireguardInterface>();
+-    for peer in &config.peers {
+-        total += size_of::<WireguardPeer>();
+-        total += peer.allowed_ips.len() * size_of::<WireguardAllowedIp>();
+-    }
+-
+-    let mut blob = vec![0u8; total];
+-    let mut off = 0;
+-
+-    if !config.dns_servers.is_empty() {
+-        tracing::info!("DNS servers in config: {:?}", config.dns_servers);
+-    }
+-    if let (Some(addr), Some(prefix)) = (config.interface_address, config.interface_prefix) {
+-        tracing::info!("Interface address: {}/{}", addr, prefix);
+-    }
+-
+-    // ── Interface ──────────────────────────────────────────────────────────
+-    let mut iface_flags = WIREGUARD_INTERFACE_HAS_PRIVATE_KEY | WIREGUARD_INTERFACE_REPLACE_PEERS;
+-    if config.listen_port.is_some() {
+-        iface_flags |= WIREGUARD_INTERFACE_HAS_LISTEN_PORT;
+-    }
+-
+-    let iface = WireguardInterface {
+-        flags: iface_flags,
+-        listen_port: config.listen_port.unwrap_or(0),
+-        private_key: config.private_key,
+-        public_key: [0u8; WIREGUARD_KEY_LENGTH], // driver computes this
+-        peers_count: config.peers.len() as u32,
+-    };
+-    write_struct(&iface, &mut blob, &mut off);
+-
+-    // ── Peers ──────────────────────────────────────────────────────────────
+-    for peer in &config.peers {
+-        let mut pflags = WIREGUARD_PEER_HAS_PUBLIC_KEY | WIREGUARD_PEER_REPLACE_ALLOWED_IPS;
+-        if peer.preshared_key.is_some() {
+-            pflags |= WIREGUARD_PEER_HAS_PRESHARED_KEY;
+-        }
+-        if peer.persistent_keepalive.is_some() {
+-            pflags |= WIREGUARD_PEER_HAS_PERSISTENT_KEEPALIVE;
+-        }
+-        if peer.endpoint.is_some() {
+-            pflags |= WIREGUARD_PEER_HAS_ENDPOINT;
+-        }
+-
+-        let endpoint = peer
+-            .endpoint
+-            .map(|e| socket_addr_to_sockaddr_inet(&e))
+-            .unwrap_or_else(|| unsafe { std::mem::zeroed() });
+-
+-        let wg_peer = WireguardPeer {
+-            flags: pflags,
+-            reserved: 0,
+-            public_key: peer.public_key,
+-            preshared_key: peer.preshared_key.unwrap_or([0u8; WIREGUARD_KEY_LENGTH]),
+-            persistent_keepalive: peer.persistent_keepalive.unwrap_or(0),
+-            endpoint,
+-            tx_bytes: 0,
+-            rx_bytes: 0,
+-            last_handshake: 0,
+-            allowed_ips_count: peer.allowed_ips.len() as u32,
++
++#[cfg(target_os = "windows")]
++mod imp {
++    use crate::wireguard_config::*;
++    use std::mem::size_of;
++    use std::net::IpAddr;
++    use windows::Win32::Networking::WinSock::{AF_INET, AF_INET6, IN6_ADDR, IN_ADDR, IN_ADDR_0};
++
++    /// Serialises ParsedConfig into the binary blob for WireGuardSetConfiguration.
++    /// Layout: WireguardInterface | WireguardPeer₁ | AllowedIp₁₁ … | WireguardPeer₂ | …
++    pub fn serialize_config(config: &ParsedConfig) -> Result<Vec<u8>, String> {
++        let mut total = size_of::<WireguardInterface>();
++        for peer in &config.peers {
++            total += size_of::<WireguardPeer>();
++            total += peer.allowed_ips.len() * size_of::<WireguardAllowedIp>();
++        }
++
++        let mut blob = vec![0u8; total];
++        let mut off = 0;
++
++        if !config.dns_servers.is_empty() {
++            tracing::info!("DNS servers in config: {:?}", config.dns_servers);
++        }
++        if let (Some(addr), Some(prefix)) = (config.interface_address, config.interface_prefix) {
++            tracing::info!("Interface address: {}/{}", addr, prefix);
++        }
++
++        // ── Interface ──────────────────────────────────────────────────────────
++        let mut iface_flags = WIREGUARD_INTERFACE_HAS_PRIVATE_KEY | WIREGUARD_INTERFACE_REPLACE_PEERS;
++        if config.listen_port.is_some() {
++            iface_flags |= WIREGUARD_INTERFACE_HAS_LISTEN_PORT;
++        }
++
++        let iface = WireguardInterface {
++            flags: iface_flags,
++            listen_port: config.listen_port.unwrap_or(0),
++            private_key: config.private_key,
++            public_key: [0u8; WIREGUARD_KEY_LENGTH], // driver computes this
++            peers_count: config.peers.len() as u32,
+         };
+-        write_struct(&wg_peer, &mut blob, &mut off);
+-
+-        // ── AllowedIPs ─────────────────────────────────────────────────────
+-        for aip in &peer.allowed_ips {
+-            // ✅ FIX: from_ne_bytes preserves network byte order in memory.
+-            //   from_be_bytes was causing REVERSED IP bytes → wrong routes.
+-            let (address, address_family) = match aip.address {
+-                IpAddr::V4(v4) => (
+-                    WireguardIpAddress {
+-                        v4: IN_ADDR {
+-                            S_un: IN_ADDR_0 {
+-                                S_addr: u32::from_ne_bytes(v4.octets()),
++        write_struct(&iface, &mut blob, &mut off);
++
++        // ── Peers ──────────────────────────────────────────────────────────────
++        for peer in &config.peers {
++            let mut pflags = WIREGUARD_PEER_HAS_PUBLIC_KEY | WIREGUARD_PEER_REPLACE_ALLOWED_IPS;
++            if peer.preshared_key.is_some() {
++                pflags |= WIREGUARD_PEER_HAS_PRESHARED_KEY;
++            }
++            if peer.persistent_keepalive.is_some() {
++                pflags |= WIREGUARD_PEER_HAS_PERSISTENT_KEEPALIVE;
++            }
++            if peer.endpoint.is_some() {
++                pflags |= WIREGUARD_PEER_HAS_ENDPOINT;
++            }
++
++            let endpoint = peer
++                .endpoint
++                .map(|e| socket_addr_to_sockaddr_inet(&e))
++                .unwrap_or_else(|| unsafe { std::mem::zeroed() });
++
++            let wg_peer = WireguardPeer {
++                flags: pflags,
++                reserved: 0,
++                public_key: peer.public_key,
++                preshared_key: peer.preshared_key.unwrap_or([0u8; WIREGUARD_KEY_LENGTH]),
++                persistent_keepalive: peer.persistent_keepalive.unwrap_or(0),
++                endpoint,
++                tx_bytes: 0,
++                rx_bytes: 0,
++                last_handshake: 0,
++                allowed_ips_count: peer.allowed_ips.len() as u32,
++            };
++            write_struct(&wg_peer, &mut blob, &mut off);
++
++            for aip in &peer.allowed_ips {
++                let (address, address_family) = match aip.address {
++                    IpAddr::V4(v4) => (
++                        WireguardIpAddress {
++                            v4: IN_ADDR {
++                                S_un: IN_ADDR_0 {
++                                    S_addr: u32::from_ne_bytes(v4.octets()),
++                                },
+                             },
+                         },
+-                    },
+-                    AF_INET,
+-                ),
+-                IpAddr::V6(v6) => (
+-                    WireguardIpAddress {
+-                        v6: IN6_ADDR {
+-                            u: windows::Win32::Networking::WinSock::IN6_ADDR_0 {
+-                                Byte: v6.octets(),
++                        AF_INET,
++                    ),
++                    IpAddr::V6(v6) => (
++                        WireguardIpAddress {
++                            v6: IN6_ADDR {
++                                u: windows::Win32::Networking::WinSock::IN6_ADDR_0 {
++                                    Byte: v6.octets(),
++                                },
+                             },
+                         },
+-                    },
+-                    AF_INET6,
+-                ),
++                        AF_INET6,
++                    ),
++                };
++
++                let wg_ip = WireguardAllowedIp {
++                    address,
++                    address_family,
++                    cidr: aip.cidr,
++                };
++                write_struct(&wg_ip, &mut blob, &mut off);
++            }
++        }
++
++        debug_assert_eq!(off, total, "serializer produced unexpected size");
++        Ok(blob)
++    }
++
++    /// Safe memcopy of a #[repr(C)] struct into a byte buffer.
++    fn write_struct<T: Copy>(val: &T, buf: &mut [u8], off: &mut usize) {
++        let bytes: &[u8] =
++            unsafe { std::slice::from_raw_parts((val as *const T) as *const u8, size_of::<T>()) };
++        buf[*off..*off + size_of::<T>()].copy_from_slice(bytes);
++        *off += size_of::<T>();
++    }
++
++    /// Reads peer statistics from a GetConfiguration blob.
++    /// Returns Vec<(tx_bytes, rx_bytes, last_handshake_unix_secs)>.
++    ///
++    /// HIGH-3 fix: full bounds-checking + integer-overflow protection.
++    /// Malformed blobs with inflated allowed_ips_count no longer cause UB.
++    pub fn read_peer_stats(blob: &[u8]) -> Vec<(u64, u64, u64)> {
++        let iface_size = size_of::<WireguardInterface>();
++        let peer_size = size_of::<WireguardPeer>();
++        let aip_size = size_of::<WireguardAllowedIp>();
++
++        // Guard: blob must at least contain the interface header
++        if blob.len() < iface_size {
++            return vec![];
++        }
++
++        let iface: WireguardInterface =
++            unsafe { std::ptr::read_unaligned(blob.as_ptr() as *const WireguardInterface) };
++
++        let mut off = iface_size;
++        let mut result = Vec::new();
++
++        for _ in 0..iface.peers_count {
++            // HIGH-3 fix: bounds-check peer header
++            if off + peer_size > blob.len() {
++                tracing::warn!("read_peer_stats: truncated peer header at offset {off}");
++                break;
++            }
++            let peer: WireguardPeer =
++                unsafe { std::ptr::read_unaligned(blob[off..].as_ptr() as *const WireguardPeer) };
++            off += peer_size;
++
++            // HIGH-3 fix: checked_mul prevents allowed_ips_count overflow
++            // e.g. allowed_ips_count = 0xFFFFFFFF would overflow off += count * size
++            let aip_bytes = match (peer.allowed_ips_count as usize).checked_mul(aip_size) {
++                Some(n) => n,
++                None => {
++                    tracing::warn!(
++                        "read_peer_stats: allowed_ips_count={} overflow, aborting parse",
++                        peer.allowed_ips_count
++                    );
++                    break;
++                }
+             };
+-
+-            let wg_ip = WireguardAllowedIp {
+-                address,
+-                address_family,
+-                cidr: aip.cidr,
+-            };
+-            write_struct(&wg_ip, &mut blob, &mut off);
+-        }
+-    }
+-
+-    debug_assert_eq!(off, total, "serializer produced unexpected size");
+-    Ok(blob)
+-}
+-
+-/// Safe memcopy of a #[repr(C)] struct into a byte buffer.
+-fn write_struct<T: Copy>(val: &T, buf: &mut [u8], off: &mut usize) {
+-    let bytes: &[u8] =
+-        unsafe { std::slice::from_raw_parts((val as *const T) as *const u8, size_of::<T>()) };
+-    buf[*off..*off + size_of::<T>()].copy_from_slice(bytes);
+-    *off += size_of::<T>();
+-}
+-
+-/// Reads peer statistics from a GetConfiguration blob.
+-/// Returns Vec<(tx_bytes, rx_bytes, last_handshake_unix_secs)>.
+-///
+-/// HIGH-3 fix: full bounds-checking + integer-overflow protection.
+-/// Malformed blobs with inflated allowed_ips_count no longer cause UB.
+-pub fn read_peer_stats(blob: &[u8]) -> Vec<(u64, u64, u64)> {
+-    let iface_size = size_of::<WireguardInterface>();
+-    let peer_size = size_of::<WireguardPeer>();
+-    let aip_size = size_of::<WireguardAllowedIp>();
+-
+-    // Guard: blob must at least contain the interface header
+-    if blob.len() < iface_size {
+-        return vec![];
+-    }
+-
+-    let iface: WireguardInterface =
+-        unsafe { std::ptr::read_unaligned(blob.as_ptr() as *const WireguardInterface) };
+-
+-    let mut off = iface_size;
+-    let mut result = Vec::new();
+-
+-    for _ in 0..iface.peers_count {
+-        // HIGH-3 fix: bounds-check peer header
+-        if off + peer_size > blob.len() {
+-            tracing::warn!("read_peer_stats: truncated peer header at offset {off}");
+-            break;
+-        }
+-        let peer: WireguardPeer =
+-            unsafe { std::ptr::read_unaligned(blob[off..].as_ptr() as *const WireguardPeer) };
+-        off += peer_size;
+-
+-        // HIGH-3 fix: checked_mul prevents allowed_ips_count overflow
+-        // e.g. allowed_ips_count = 0xFFFFFFFF would overflow off += count * size
+-        let aip_bytes = match (peer.allowed_ips_count as usize).checked_mul(aip_size) {
+-            Some(n) => n,
+-            None => {
++            // HIGH-3 fix: bounds-check AllowedIPs section
++            if off + aip_bytes > blob.len() {
+                 tracing::warn!(
+-                    "read_peer_stats: allowed_ips_count={} overflow, aborting parse",
+-                    peer.allowed_ips_count
++                    "read_peer_stats: allowed_ips section ({aip_bytes} bytes) exceeds blob at offset {off}"
+                 );
+                 break;
+             }
+-        };
+-        // HIGH-3 fix: bounds-check AllowedIPs section
+-        if off + aip_bytes > blob.len() {
+-            tracing::warn!(
+-                "read_peer_stats: allowed_ips section ({aip_bytes} bytes) exceeds blob at offset {off}"
+-            );
+-            break;
+-        }
+-        off += aip_bytes;
+-
+-        result.push((
+-            peer.tx_bytes,
+-            peer.rx_bytes,
+-            filetime_to_unix(peer.last_handshake),
+-        ));
+-    }
+-
+-    result
+-}
+-
+-/// Windows FILETIME (100ns intervals since 1601-01-01) → Unix seconds.
+-pub fn filetime_to_unix(ft: u64) -> u64 {
+-    if ft == 0 {
+-        return 0;
+-    }
+-    // 100ns intervals from 1601-01-01 to 1970-01-01 = 116 444 736 000 000 000
+-    const EPOCH_DIFF: u64 = 116_444_736_000_000_000;
+-    ft.saturating_sub(EPOCH_DIFF) / 10_000_000
+-}
+-
+-/// Hexdump for debug use.
+-/// CRIT-2: this function is NOT called from release paths that involve key material.
++            off += aip_bytes;
++
++            result.push((
++                peer.tx_bytes,
++                peer.rx_bytes,
++                filetime_to_unix(peer.last_handshake),
++            ));
++        }
++
++        result
++    }
++
++    /// Windows FILETIME (100ns intervals since 1601-01-01) → Unix seconds.
++    pub fn filetime_to_unix(ft: u64) -> u64 {
++        if ft == 0 {
++            return 0;
++        }
++        // 100ns intervals from 1601-01-01 to 1970-01-01 = 116 444 736 000 000 000
++        const EPOCH_DIFF: u64 = 116_444_736_000_000_000;
++        ft.saturating_sub(EPOCH_DIFF) / 10_000_000
++    }
++
++    /// Hexdump for debug use.
++    /// CRIT-2: this function is NOT called from release paths that involve key material.
++    #[allow(dead_code)]
++    pub fn hexdump(data: &[u8], max_bytes: usize) -> String {
++        let mut s = String::new();
++        let len = data.len().min(max_bytes);
++        for (i, chunk) in data[..len].chunks(16).enumerate() {
++            s.push_str(&format!("{:08x}  ", i * 16));
++            for (j, byte) in chunk.iter().enumerate() {
++                s.push_str(&format!("{:02x} ", byte));
++                if j == 7 {
++                    s.push(' ');
++                }
++            }
++            if chunk.len() < 16 {
++                for j in chunk.len()..16 {
++                    s.push_str("   ");
++                    if j == 7 {
++                        s.push(' ');
++                    }
++                }
++            }
++            s.push_str(" |");
++            for byte in chunk {
++                s.push(if byte.is_ascii_graphic() || *byte == b' ' {
++                    *byte as char
++                } else {
++                    '.'
++                });
++            }
++            s.push_str("|\n");
++        }
++        if data.len() > max_bytes {
++            s.push_str(&format!("... ({} more bytes)\n", data.len() - max_bytes));
++        }
++        s
++    }
++}
++
++#[cfg(target_os = "windows")]
++pub use imp::*;
++
++#[cfg(not(target_os = "windows"))]
++use crate::wireguard_config::ParsedConfig;
++
++#[cfg(not(target_os = "windows"))]
++pub fn serialize_config(_config: &ParsedConfig) -> Result<Vec<u8>, String> {
++    Err("WireGuard configuration serialization is only supported on Windows".to_string())
++}
++
++#[cfg(not(target_os = "windows"))]
++pub fn read_peer_stats(_blob: &[u8]) -> Vec<(u64, u64, u64)> {
++    Vec::new()
++}
++
++#[cfg(not(target_os = "windows"))]
++pub fn filetime_to_unix(_ft: u64) -> u64 {
++    0
++}
++
++#[cfg(not(target_os = "windows"))]
+ #[allow(dead_code)]
+ pub fn hexdump(data: &[u8], max_bytes: usize) -> String {
+     let mut s = String::new();
+--- a/src/game_detection/mod.rs
++++ b/src/game_detection/mod.rs
+@@ -138,7 +138,7 @@
+         self.last_scan_ms.store(now, Ordering::Relaxed);
+         self.scan_count.fetch_add(1, Ordering::Relaxed);
+         let mut sys = System::new();
+-        sys.refresh_processes(ProcessesToUpdate::All);
++        sys.refresh_processes(ProcessesToUpdate::All, true);
+         let names: Vec<String> = sys
+             .processes()
+             .values()
+--- a/src/monitor/mod.rs
++++ b/src/monitor/mod.rs
+@@ -131,7 +131,7 @@
+         let running = Arc::clone(&self.running);
+         let app_for_task = app.clone();
+ 
+-        let handle = tauri::async_runtime::spawn(async move {
++        let handle = tokio::spawn(async move {
+             tracing::info!("monitor: worker started");
+             while running.load(Ordering::Relaxed) {
+                 let cfg = cfg_arc.lock().clone();
+@@ -203,7 +203,7 @@
+ {
+     let mut handles = Vec::with_capacity(futs.len());
+     for f in futs {
+-        handles.push(tauri::async_runtime::spawn(f));
++        handles.push(tokio::spawn(f));
+     }
+     let mut out = Vec::with_capacity(handles.len());
+     for h in handles {
+--- a/src/snapshot/mod.rs
++++ b/src/snapshot/mod.rs
+@@ -188,7 +188,7 @@
+                 .get(id)
+                 .map(|t| (t.health, t.streak));
+             let (health, streak) = match prev {
+-                Some((h, s)) if h == health_now => (h, 0),
++                Some((h, _s)) if h == health_now => (h, 0),
+                 Some((h, s)) => {
+                     let ns = s + 1;
+                     if ns >= HEALTH_HYSTERESIS_STREAK {
+@@ -252,7 +252,7 @@
+             return;
+         }
+         let me = Arc::clone(self);
+-        let handle = tauri::async_runtime::spawn(async move {
++        let handle = tokio::spawn(async move {
+             let mut ticker = tokio::time::interval(Duration::from_millis(
+                 me.interval_ms.load(Ordering::Relaxed),
+             ));
+--- a/src/routes/mod.rs
++++ b/src/routes/mod.rs
+@@ -13,7 +13,7 @@
+ use serde::Serialize;
+ use std::collections::{HashMap, HashSet};
+ use std::net::SocketAddr;
+-use std::sync::atomic::{AtomicU64, Ordering};
++use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+ use std::sync::Arc;
+ use std::time::Instant;
+ 
+@@ -75,19 +75,17 @@
+ }
+ 
+ pub struct RouteManager {
+-    metrics: MetricsStore,
+     snapshot: Arc<RouteSnapshotEngine>,
+     inner: RwLock<RouteInner>,
+     last_switch_ms: AtomicU64,
+     started: Instant,
+     cooldown_ms: AtomicU64,
+-    switch_margin: AtomicU64,
++    switch_margin: AtomicU32,
+ }
+ 
+ impl RouteManager {
+-    pub fn new(metrics: MetricsStore, snapshot: Arc<RouteSnapshotEngine>) -> Arc<Self> {
++    pub fn new(_metrics: MetricsStore, snapshot: Arc<RouteSnapshotEngine>) -> Arc<Self> {
+         Arc::new(Self {
+-            metrics,
+             snapshot,
+             inner: RwLock::new(RouteInner {
+                 candidates: HashMap::new(),
+@@ -96,7 +94,7 @@
+             last_switch_ms: AtomicU64::new(0),
+             started: Instant::now(),
+             cooldown_ms: AtomicU64::new(DEFAULT_COOLDOWN_MS),
+-            switch_margin: AtomicU64::new(DEFAULT_SWITCH_MARGIN.to_bits()),
++            switch_margin: AtomicU32::new(DEFAULT_SWITCH_MARGIN.to_bits()),
+         })
+     }
+ 
+@@ -142,7 +140,7 @@
+     }
+ 
+     pub fn current(&self) -> Option<String> {
+-        self.snapshot.current().selected
++        self.snapshot.current().selected.clone()
+     }
+ 
+     pub fn health_of(&self, id: &str) -> Health {
+@@ -290,7 +288,7 @@
+         let g = self.inner.read();
+         RouteState {
+             candidates: g.candidates.values().cloned().collect(),
+-            current: self.snapshot.current().selected,
++            current: self.snapshot.current().selected.clone(),
+             manual_override: g.manual_override.clone(),
+             last_switch_ms: self.last_switch_ms.load(Ordering::Relaxed),
+             cooldown_ms: self.cooldown_ms.load(Ordering::Relaxed),
+--- a/src/ringbuf.rs
++++ b/src/ringbuf.rs
+@@ -34,11 +34,12 @@
+ 
+     pub fn push(&self, value: T) {
+         let mut g = self.inner.write();
+-        let idx = (g.head + g.len) % g.cap;
++        let head = g.head;
++        let idx = (head + g.len) % g.cap;
+         if g.len == g.cap {
+             // overwrite oldest
+-            g.data[g.head] = Some(value);
+-            g.head = (g.head + 1) % g.cap;
++            g.data[head] = Some(value);
++            g.head = (head + 1) % g.cap;
+         } else {
+             g.data[idx] = Some(value);
+             g.len += 1;
+--- a/src/autopilot/mod.rs
++++ b/src/autopilot/mod.rs
+@@ -10,7 +10,7 @@
+ use crate::snapshot::{Health, Snapshot};
+ use parking_lot::RwLock;
+ use policy::{
+-    CooldownClass, FsmState, PolicyConfig, PolicyContext, PolicyGate, PolicyVerdict, Verdict,
++    FsmState, PolicyConfig, PolicyContext, PolicyGate, PolicyVerdict, Verdict,
+ };
+ use serde::Serialize;
+ use stability::{StabilityHistory, StabilitySample};
