@@ -1,8 +1,53 @@
 [[permission]]
 identifier = "allow-app-commands"
-description = "Tunnel control commands used by the React UI"
+description = "Tunnel control + SD-WAN / monitoring commands used by the React UI"
 commands.allow = [
   "connect",
   "disconnect",
   "get_status",
+
+  # Monitoring (A, B)
+  "monitor_start",
+  "monitor_stop",
+  "monitor_get_snapshot",
+  "monitor_set_targets",
+
+  # QoS (C)
+  "qos_list_rules",
+  "qos_add_rule",
+  "qos_remove_rule",
+  "qos_set_profile",
+  "qos_get_state",
+
+  # Game detection (D)
+  "game_list_profiles",
+  "game_add_profile",
+  "game_remove_profile",
+  "game_get_state",
+  "game_force_active",
+
+  # Routes / auto selection (E)
+  "routes_list",
+  "routes_set_candidates",
+  "routes_select_manual",
+  "routes_get_state",
+  "routes_set_policy",
+
+  # Load balancing (F)
+  "lb_register_flow",
+  "lb_unregister_flow",
+  "lb_list_flows",
+  "lb_set_strategy",
+
+  # Multi-hop (G)
+  "multihop_set_chain",
+  "multihop_start",
+  "multihop_stop",
+  "multihop_get_state",
+
+  # Autopilot (H)
+  "autopilot_enable",
+  "autopilot_disable",
+  "autopilot_get_state",
+  "autopilot_override",
 ]
