@@ -43,7 +43,9 @@ pub async fn ping(target: IpAddr, timeout: Duration, tcp_fallback_port: u16) -> 
                 }
             }
         }
-        IpAddr::V6(_) => tcp_connect_probe(SocketAddr::new(target, tcp_fallback_port), timeout).await,
+        IpAddr::V6(_) => {
+            tcp_connect_probe(SocketAddr::new(target, tcp_fallback_port), timeout).await
+        }
     }
 }
 

@@ -163,7 +163,10 @@ impl MonitorService {
                         None => PingSample::lost(now),
                     };
                     metrics.push(&id, sample);
-                    samples_for_event.push(TargetSample { target_id: id, sample });
+                    samples_for_event.push(TargetSample {
+                        target_id: id,
+                        sample,
+                    });
                 }
 
                 let payload = MonitorTick {
