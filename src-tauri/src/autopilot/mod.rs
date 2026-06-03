@@ -219,7 +219,7 @@ impl Autopilot {
                         .copied()
                         .unwrap_or(i64::MIN)
                 };
-                if latest.timestamp_ms > last_ts {
+                if latest.timestamp_ms >= last_ts {
                     self.stability
                         .record(id, StabilitySample::from_ping(latest));
                     self.inner
