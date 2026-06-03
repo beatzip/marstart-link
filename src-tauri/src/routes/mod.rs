@@ -282,6 +282,7 @@ impl RouteManager {
         }
         self.last_switch_ms.store(self.elapsed_ms(), Ordering::Relaxed);
         self.snapshot.set_selected(new_id);
+        self.snapshot.refresh_now();
     }
 
     pub fn state(&self) -> RouteState {
