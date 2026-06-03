@@ -3,7 +3,17 @@
     windows_subsystem = "windows"
 )]
 
+mod autopilot;
+mod events;
+mod game_detection;
+mod loadbalance;
+mod metrics;
+mod monitor;
+mod net_probe;
 mod profiles;
+mod ringbuf;
+mod routes;
+mod snapshot;
 mod utils;
 mod wireguard;
 mod wireguard_config;
