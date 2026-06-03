@@ -188,7 +188,7 @@ impl RouteSnapshotEngine {
                 .get(id)
                 .map(|t| (t.health, t.streak));
             let (health, streak) = match prev {
-                Some((h, s)) if h == health_now => (h, 0),
+                Some((h, _s)) if h == health_now => (h, 0),
                 Some((h, s)) => {
                     let ns = s + 1;
                     if ns >= HEALTH_HYSTERESIS_STREAK {
@@ -252,7 +252,7 @@ impl RouteSnapshotEngine {
             return;
         }
         let me = Arc::clone(self);
-        let handle = tauri::async_runtime::spawn(async move {
+        let handle = tokio::spawn(async move {
             let mut ticker = tokio::time::interval(Duration::from_millis(
                 me.interval_ms.load(Ordering::Relaxed),
             ));

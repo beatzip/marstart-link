@@ -2,7 +2,10 @@
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
+
+#[cfg(target_os = "windows")]
 use windows::Win32::NetworkManagement::IpHelper::{InitializeIpForwardEntry, MIB_IPFORWARD_ROW2};
+#[cfg(target_os = "windows")]
 use windows::Win32::Networking::WinSock::AF_INET;
 
 pub fn resolve_dll_path(handle: &AppHandle, dll_name: &str) -> Result<PathBuf, String> {
@@ -42,6 +45,7 @@ pub fn parse_cidr(cidr: &str) -> Result<(std::net::IpAddr, u8), String> {
     Ok((ip, prefix))
 }
 
+#[cfg(target_os = "windows")]
 pub unsafe fn create_forward_row(
     ip: Ipv4Addr,
     prefix_len: u8,
