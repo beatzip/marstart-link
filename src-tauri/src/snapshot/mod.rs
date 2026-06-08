@@ -189,6 +189,7 @@ impl RouteSnapshotEngine {
                 .targets
                 .get(id)
                 .map(|t| (t.health, t.streak));
+            // Hysteresis: require HEALTH_HYSTERESIS_STREAK consecutive readings before switching
             let (health, streak) = match prev {
                 Some((h, _s)) if h == health_now => (h, 0),
                 Some((h, s)) => {

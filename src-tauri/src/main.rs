@@ -35,7 +35,18 @@ async fn connect(profile_id: String, state: State<'_, AppState>) -> Result<(), S
         return Err("Туннель уже активен".into());
     }
     let profile = profiles::load_profile(&profile_id)?;
-    let tunnel = wireguard::WireGuardTunnel::new(&profile)?;
+    // Verify config file exists
+    if let Some(ref config_path) = profile.wg_config_path {
+        if !std::path::Path::new(config_path).exists() {
+            return Err(format!("WireGuard config not found: {}", config_path));
+        }
+    }
+    let mut tunnel = wireguard::WireGuardTunnel::new(&profile)?;
+    if let Err(e) = tunnel.connect() {
+        // Cleanup on connect failure - ensure adapter is removed from system
+        let _ = tunnel.teardown();
+        return Err(e);
+    }
     *guard = Some(tunnel);
     Ok(())
 }
