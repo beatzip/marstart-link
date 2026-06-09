@@ -3,6 +3,8 @@ use crate::wireguard_config::{ParsedConfig, WIREGUARD_KEY_LENGTH};
 use crate::wireguard_parser::{parse_wireguard_config, validate_config};
 #[cfg(target_os = "windows")]
 use crate::wireguard_serializer::{read_peer_stats, serialize_config};
+#[cfg(target_os = "windows")]
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 #[cfg(target_os = "windows")]
 use std::os::windows::ffi::OsStrExt;
@@ -12,15 +14,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 #[cfg(target_os = "windows")]
-use PCWSTR;
-#[cfg(target_os = "windows")]
 use windows::Win32::Foundation::{FARPROC, HANDLE, NTSTATUS, WIN32_ERROR};
 #[cfg(target_os = "windows")]
 use windows::Win32::Networking::WinSock::{AF_INET, SOCKADDR_IN};
 #[cfg(target_os = "windows")]
 use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
 #[cfg(target_os = "windows")]
-use base64::Engine;
+use PCWSTR;
 
 /// Returns path to DLL next to the executable
 fn get_dll_path(dll_name: &str) -> PathBuf {
