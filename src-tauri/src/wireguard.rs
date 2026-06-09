@@ -1,5 +1,7 @@
+#[cfg(target_os = "windows")]
 use crate::wireguard_config::{ParsedConfig, WIREGUARD_KEY_LENGTH};
 use crate::wireguard_parser::{parse_wireguard_config, validate_config};
+#[cfg(target_os = "windows")]
 use crate::wireguard_serializer::{read_peer_stats, serialize_config};
 use serde::{Deserialize, Serialize};
 #[cfg(target_os = "windows")]
@@ -17,6 +19,7 @@ use windows::Win32::Foundation::{FARPROC, HANDLE, NTSTATUS, WIN32_ERROR};
 use windows::Win32::Networking::WinSock::{AF_INET, SOCKADDR_IN};
 #[cfg(target_os = "windows")]
 use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
+#[cfg(target_os = "windows")]
 use base64::Engine;
 
 /// Returns path to DLL next to the executable
@@ -61,7 +64,7 @@ pub struct ConnectionInfo {
     pub endpoint: Option<String>,
 }
 
-#[cfg(not(target_os = "windows"))]
+##[cfg(target_os = "windows")]
 pub struct WireGuardTunnel {
     adapter_name: String,
     config: crate::wireguard_config::ParsedConfig,
@@ -521,7 +524,7 @@ impl WireGuardTunnel {
     pub fn status(&self) -> TunnelStatus {
         self.status
             .lock()
-            .map(|g| *g)
+            .map(|g| g.clone())
             .unwrap_or(TunnelStatus::Disconnected)
     }
 
