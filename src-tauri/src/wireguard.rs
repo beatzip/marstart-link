@@ -64,7 +64,7 @@ pub struct ConnectionInfo {
     pub endpoint: Option<String>,
 }
 
-##[cfg(target_os = "windows")]
+#[cfg(target_os = "windows")]
 pub struct WireGuardTunnel {
     adapter_name: String,
     config: crate::wireguard_config::ParsedConfig,
