@@ -86,7 +86,7 @@ type WireGuardCreateAdapterFunc = unsafe extern "system" fn(
 type WireGuardDeleteAdapterFunc =
     unsafe extern "system" fn(adapter: HANDLE, adapter_name: windows::Win32::Foundation::PCWSTR);
 
-#[cfg(target_os = "windows")]    
+#[cfg(target_os = "windows")]
 type WireGuardSetConfigurationFunc = unsafe extern "system" fn(
     adapter: HANDLE,
     config_bytes: *const std::ffi::c_void,
