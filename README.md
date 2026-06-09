@@ -2,7 +2,7 @@
 
 <div align="center">
 
-<img src="src-tauri/icons/icon.png" alt="MARSTART LINK logo" width="140" />
+<img src="https://github.com/beatzip/marstart-link/blob/main/src-tauri/icons/icon.png" alt="MARSTART LINK logo" width="140" />
 
 **Windows-клиент для управления туннелем и сетевой маршрутизацией**
 
