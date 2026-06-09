@@ -41,10 +41,29 @@ async fn connect(profile_id: String, state: State<'_, AppState>) -> Result<(), S
             return Err(format!("WireGuard config not found: {}", config_path));
         }
     }
-    let mut tunnel = wireguard::WireGuardTunnel::new(&profile)?;
-    if let Err(e) = tunnel.connect() {
+
+    // Create tunnel in blocking context
+    let tunnel = tokio::task::spawn_blocking(move || {
+        wireguard::WireGuardTunnel::new(&profile)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+
+    // Connect in blocking context, returning tunnel regardless of result
+    let (tunnel, connect_result) = tokio::task::spawn_blocking(move || {
+        let mut t = tunnel;
+        let result = t.connect();
+        (t, result)
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    if let Err(e) = connect_result {
         // Cleanup on connect failure - ensure adapter is removed from system
-        let _ = tunnel.teardown();
+        let _ = tokio::task::spawn_blocking(move || {
+            tunnel.teardown()
+        })
+        .await;
         return Err(e);
     }
     *guard = Some(tunnel);
@@ -55,7 +74,14 @@ async fn connect(profile_id: String, state: State<'_, AppState>) -> Result<(), S
 async fn disconnect(state: State<'_, AppState>) -> Result<(), String> {
     let mut guard = state.tunnel.lock().map_err(|e| e.to_string())?;
     if let Some(tunnel) = guard.take() {
-        tunnel.teardown()?;
+        // Teardown in blocking context, errors are tolerant
+        let _ = tokio::task::spawn_blocking(move || {
+            tunnel.teardown()
+        })
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string());
+        // Teardown errors are logged but don't fail the disconnect operation
     }
     Ok(())
 }
