@@ -9,7 +9,9 @@ use crate::game_detection::GameSignal;
 use crate::metrics::MetricsStore;
 use crate::snapshot::{Health, Snapshot};
 use parking_lot::RwLock;
-use policy::{FsmState, PolicyConfig, PolicyContext, PolicyGate, PolicyVerdict, Verdict};
+use policy::{FsmState, PolicyContext, PolicyGate, PolicyVerdict, Verdict};
+#[cfg(test)]
+use policy::PolicyConfig;
 use serde::Serialize;
 use stability::{StabilityHistory, StabilitySample};
 use std::collections::HashMap;
@@ -17,6 +19,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
+#[allow(unused_imports)]
 pub use policy::FsmState as AutopilotFsmState;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -385,6 +388,7 @@ mod tests {
     use crate::snapshot::RouteSnapshot;
     use chrono::Utc;
 
+    #[cfg(test)]
     fn no_cooldown_cfg() -> PolicyConfig {
         PolicyConfig {
             game_mode_cooldown_ms: 0,

@@ -8,7 +8,7 @@
 
 use crate::metrics::MetricsStore;
 use crate::profiles::EndpointSpec;
-use crate::snapshot::{Health, RouteSnapshotEngine};
+use crate::snapshot::RouteSnapshotEngine;
 use parking_lot::RwLock;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -36,7 +36,7 @@ pub struct RouteScoreView {
     pub id: String,
     pub score: f32,
     pub weighted_score: f32,
-    pub health: Health,
+    pub health: RouteHealth,
     pub weight: f32,
 }
 
@@ -143,7 +143,7 @@ impl RouteManager {
         self.snapshot.current().selected.clone()
     }
 
-    pub fn health_of(&self, id: &str) -> Health {
+    pub fn health_of(&self, id: &str) -> RouteHealth {
         self.snapshot.current().health_of(id)
     }
 
@@ -215,7 +215,7 @@ impl RouteManager {
         let mut recommended: Option<String> = manual.clone();
         if recommended.is_none() {
             let healthy: Vec<&RouteScoreView> =
-                scores.iter().filter(|s| s.health != Health::Bad).collect();
+                scores.iter().filter(|s| s.health != RouteHealth::Bad).collect();
             if let Some(best) = healthy.iter().min_by(|a, b| {
                 a.weighted_score
                     .partial_cmp(&b.weighted_score)
