@@ -1,4 +1,4 @@
-Production patch for Game Accelerator
+Production patch for MARSTART LINK
 
 Included changes:
 - WireGuard session-scoped diagnostics command (`tunnel_get_diagnostics`)
