@@ -1,8 +1,8 @@
 {
-  "productName": "GameAccelerator",
+  "productName": "MARSTART LINK",
   "version": "0.1.0",
-  "identifier": "com.gameaccelerator.app",
-  "mainBinaryName": "GameAccelerator",
+  "identifier": "com.marstartlink.app",
+  "mainBinaryName": "MARSTART LINK",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
@@ -15,7 +15,7 @@
         "label": "main",
         "fullscreen": false,
         "resizable": true,
-        "title": "GameAccelerator",
+        "title": "MARSTART LINK",
         "width": 800,
         "height": 600
       }

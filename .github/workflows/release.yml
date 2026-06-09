@@ -127,7 +127,7 @@ jobs:
           TAURI_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: "Game Accelerator ${{ github.ref_name }}"
+          releaseName: "MARSTART LINK ${{ github.ref_name }}"
           releaseDraft: false
           prerelease: false
           projectPath: ./src-tauri

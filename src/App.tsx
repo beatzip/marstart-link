@@ -36,7 +36,7 @@ function App() {
 
   return (
     <div style={{ padding: '20px' }}>
-      <h1>Game Accelerator</h1>
+      <h1>MARSTART LINK</h1>
       <button onClick={handleConnect} disabled={status.status !== 'Disconnected'}>
         Подключиться
       </button>
