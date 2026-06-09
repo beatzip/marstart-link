@@ -9,9 +9,9 @@ use crate::game_detection::GameSignal;
 use crate::metrics::MetricsStore;
 use crate::snapshot::{Health, Snapshot};
 use parking_lot::RwLock;
-use policy::{FsmState, PolicyContext, PolicyGate, PolicyVerdict, Verdict};
 #[cfg(test)]
 use policy::PolicyConfig;
+use policy::{FsmState, PolicyContext, PolicyGate, PolicyVerdict, Verdict};
 use serde::Serialize;
 use stability::{StabilityHistory, StabilitySample};
 use std::collections::HashMap;
