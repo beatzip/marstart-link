@@ -923,28 +923,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "game-accelerator"
-version = "0.1.0"
-dependencies = [
- "base64 0.21.7",
- "chrono",
- "keyring",
- "memoffset",
- "once_cell",
- "parking_lot",
- "serde",
- "serde_json",
- "sysinfo",
- "tauri",
- "tauri-build",
- "thiserror 1.0.69",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "windows 0.58.0",
-]
-
-[[package]]
 name = "gdk"
 version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1783,6 +1761,28 @@ dependencies = [
  "log",
  "tendril",
  "web_atoms",
+]
+
+[[package]]
+name = "marstart-link"
+version = "1.0.1"
+dependencies = [
+ "base64 0.21.7",
+ "chrono",
+ "keyring",
+ "memoffset",
+ "once_cell",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "sysinfo",
+ "tauri",
+ "tauri-build",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "windows 0.58.0",
 ]
 
 [[package]]

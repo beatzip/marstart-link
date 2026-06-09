@@ -3,14 +3,23 @@ use crate::wireguard_parser::{parse_wireguard_config, validate_config};
 use crate::wireguard_serializer::{read_peer_stats, serialize_config};
 use serde::{Deserialize, Serialize};
 use std::os::windows::ffi::OsStrExt;
+use std::path::PathBuf;
 use std::ptr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+use windows::core::s;
 use windows::Win32::Foundation::{FARPROC, HANDLE, NTSTATUS, WIN32_ERROR};
 use windows::Win32::Networking::WinSock::{AF_INET, SOCKADDR_IN};
-use windows::Win32::System::LibraryLoading::{GetProcAddress, LoadLibraryW};
-use windows::core::s;
+use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
+
+/// Returns path to DLL next to the executable
+fn get_dll_path(dll_name: &str) -> PathBuf {
+    let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("."));
+    exe.parent()
+        .map(|p| p.join(dll_name))
+        .unwrap_or_else(|| PathBuf::from(dll_name))
+}
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "status", content = "message")]
@@ -56,21 +65,26 @@ pub struct WireGuardTunnel {
     connect_time: Option<Instant>,
     adapter_handle: Mutex<Option<HANDLE>>,
     original_dns: Mutex<Vec<String>>,
+    /// Имя основного (non-tunnel) адаптера для восстановления DNS
+    primary_adapter_name: Mutex<Option<String>>,
 }
 
-type WireGuardCreateAdapterFunc = unsafe fn(
+type WireGuardCreateAdapterFunc = unsafe extern "system" fn(
     flags: u32,
     adapter_name: windows::Win32::Foundation::PCWSTR,
     tunnel_name: windows::Win32::Foundation::PCWSTR,
 ) -> HANDLE;
 
 type WireGuardDeleteAdapterFunc =
-    unsafe fn(adapter: HANDLE, adapter_name: windows::Win32::Foundation::PCWSTR);
+    unsafe extern "system" fn(adapter: HANDLE, adapter_name: windows::Win32::Foundation::PCWSTR);
 
-type WireGuardSetConfigurationFunc =
-    unsafe fn(adapter: HANDLE, config_bytes: *const std::ffi::c_void, config_size: u32) -> NTSTATUS;
+type WireGuardSetConfigurationFunc = unsafe extern "system" fn(
+    adapter: HANDLE,
+    config_bytes: *const std::ffi::c_void,
+    config_size: u32,
+) -> NTSTATUS;
 
-type WireGuardGetConfigurationFunc = unsafe fn(
+type WireGuardGetConfigurationFunc = unsafe extern "system" fn(
     adapter: HANDLE,
     config_bytes: *mut std::ffi::c_void,
     config_size: *mut u32,
@@ -91,6 +105,13 @@ impl WireGuardTunnel {
             let decoded = base64::engine::general_purpose::STANDARD
                 .decode(&private_key)
                 .map_err(|e| format!("Invalid base64 private key: {}", e))?;
+            if decoded.len() != WIREGUARD_KEY_LENGTH {
+                return Err(format!(
+                    "Invalid private key length: expected {}, got {}",
+                    WIREGUARD_KEY_LENGTH,
+                    decoded.len()
+                ));
+            }
             key_bytes.copy_from_slice(&decoded);
             parsed.private_key = key_bytes;
             validate_config(&parsed)?;
@@ -109,6 +130,7 @@ impl WireGuardTunnel {
             connect_time: None,
             adapter_handle: Mutex::new(None),
             original_dns: Mutex::new(Vec::new()),
+            primary_adapter_name: Mutex::new(None),
         })
     }
 
@@ -117,9 +139,14 @@ impl WireGuardTunnel {
 
         #[cfg(target_os = "windows")]
         {
-            // Load WireGuard DLL
-            let wg_lib = unsafe { LoadLibraryW(windows::core::w!("wireguard.dll")) }
-                .map_err(|e| format!("Failed to load wireguard.dll: {}", e))?;
+            // Load WireGuard DLL from same directory as executable
+            let dll_path = get_dll_path("wireguard.dll");
+            let dll_path_wide: Vec<u16> = std::ffi::OsStr::new(&dll_path)
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect();
+            let wg_lib = unsafe { LoadLibraryW(windows::core::PCWSTR(dll_path_wide.as_ptr())) }
+                .map_err(|e| format!("Failed to load wireguard.dll from {:?}: {}", dll_path, e))?;
 
             let create_adapter: FARPROC = unsafe {
                 GetProcAddress(wg_lib, s!("WireGuardCreateAdapter"))
@@ -250,11 +277,14 @@ impl WireGuardTunnel {
 
     #[cfg(target_os = "windows")]
     fn delete_adapter(&self, handle: HANDLE) -> Result<(), String> {
-        // Load WireGuard DLL and call WireGuardDeleteAdapter
-        if let Ok(lib) = unsafe { LoadLibraryW(windows::core::w!("wireguard.dll")) } {
-            if let Ok(proc) =
-                unsafe { GetProcAddress(lib, s!("WireGuardDeleteAdapter")) }
-            {
+        // Load WireGuard DLL from same directory as executable
+        let dll_path = get_dll_path("wireguard.dll");
+        let dll_path_wide: Vec<u16> = std::ffi::OsStr::new(&dll_path)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        if let Ok(lib) = unsafe { LoadLibraryW(windows::core::PCWSTR(dll_path_wide.as_ptr())) } {
+            if let Ok(proc) = unsafe { GetProcAddress(lib, s!("WireGuardDeleteAdapter")) } {
                 let func: WireGuardDeleteAdapterFunc = unsafe { std::mem::transmute(proc.0) };
                 let tunnel_wide: Vec<u16> = std::ffi::OsStr::new(&self.adapter_name)
                     .encode_wide()
@@ -273,7 +303,11 @@ impl WireGuardTunnel {
     #[cfg(target_os = "windows")]
     fn cleanup_adapter_handle(&self) -> Result<(), String> {
         // Take the handle out without holding the lock - prevents deadlock
-        let handle = self.adapter_handle.lock().map_err(|e| e.to_string())?.take();
+        let handle = self
+            .adapter_handle
+            .lock()
+            .map_err(|e| e.to_string())?
+            .take();
         if let Some(h) = handle {
             // Delete routes with rollback before adapter removal
             let routes = self
@@ -341,7 +375,7 @@ impl WireGuardTunnel {
             // Parse adapters to find our tunnel
             unsafe {
                 let mut current = buffer.as_ptr() as PIP_ADAPTER_ADDRESSES;
-                while !(*current).IsNullAddr() {
+                while !current.is_null() {
                     let friendly_name = (*current).FriendlyName;
                     if !friendly_name.is_null() {
                         let name_str = std::ffi::OsStr::from_wide(std::slice::from_raw_parts(
@@ -415,17 +449,25 @@ impl WireGuardTunnel {
     }
 
     pub fn teardown(&self) -> Result<(), String> {
+        // Restore original primary adapter DNS if it was changed
+        let original_dns: Vec<String> =
+            self.original_dns.lock().map_err(|e| e.to_string())?.clone();
+        let dns_changed = !original_dns.is_empty() || !self.config.dns_servers.is_empty();
+        if dns_changed {
+            let _ = self.restore_primary_dns();
+        }
+
         // Reset tunnel adapter DNS to DHCP (tolerant - adapter may not exist)
         let _ = self.reset_adapter_dns();
 
-        // Delete routes using stored routes
+        // Delete routes using stored routes - ignore errors, route may already be gone
         let routes = self
             .created_routes
             .lock()
             .map_err(|e| e.to_string())?
             .clone();
         for (dest, prefix_len) in &routes {
-            self.delete_route(*dest, *prefix_len)?;
+            let _ = self.delete_route(*dest, *prefix_len);
         }
         // Clear routes after deletion
         self.created_routes
@@ -436,7 +478,11 @@ impl WireGuardTunnel {
         #[cfg(target_os = "windows")]
         {
             // Take the handle to avoid double-locking
-            let handle = self.adapter_handle.lock().map_err(|e| e.to_string())?.take();
+            let handle = self
+                .adapter_handle
+                .lock()
+                .map_err(|e| e.to_string())?
+                .take();
             if let Some(h) = handle {
                 // Use the helper function to delete adapter
                 let _ = self.delete_adapter(h);
@@ -493,16 +539,20 @@ impl WireGuardTunnel {
 
     #[cfg(target_os = "windows")]
     fn read_peer_stats(&self, handle: HANDLE) -> Result<(u64, u64, u64), String> {
-        let lib = match unsafe { LoadLibraryW(windows::core::w!("wireguard.dll")) } {
+        let dll_path = get_dll_path("wireguard.dll");
+        let dll_path_wide: Vec<u16> = std::ffi::OsStr::new(&dll_path)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        let lib = match unsafe { LoadLibraryW(windows::core::PCWSTR(dll_path_wide.as_ptr())) } {
             Ok(l) => l,
             Err(_) => return Ok((0, 0, 0)),
         };
 
-        let get_config_ptr =
-            match unsafe { GetProcAddress(lib, s!("WireGuardGetConfiguration")) } {
-                Ok(p) => p,
-                Err(_) => return Ok((0, 0, 0)),
-            };
+        let get_config_ptr = match unsafe { GetProcAddress(lib, s!("WireGuardGetConfiguration")) } {
+            Ok(p) => p,
+            Err(_) => return Ok((0, 0, 0)),
+        };
 
         let get_config_fn: WireGuardGetConfigurationFunc =
             unsafe { std::mem::transmute(get_config_ptr.0) };
@@ -591,7 +641,7 @@ impl WireGuardTunnel {
             return Ok(Vec::new());
         }
 
-        let primary_if_index = unsafe {
+        let (primary_if_index, primary_adapter_name) = unsafe {
             let table = &*table_ptr;
             let mut best_metric: u32 = u32::MAX;
             let mut best_index: u32 = 0;
@@ -608,7 +658,7 @@ impl WireGuardTunnel {
                     }
                 }
             }
-            best_index
+            (best_index, String::new())
         };
 
         // Free the table using the correct API for MIB tables
@@ -620,7 +670,7 @@ impl WireGuardTunnel {
             return Ok(Vec::new());
         }
 
-        // Step 2: Get DNS from the primary adapter
+        // Step 2: Get DNS and adapter name from the primary adapter
         let mut buf_size: u32 = 0;
         unsafe {
             GetAdaptersAddresses(
@@ -652,12 +702,28 @@ impl WireGuardTunnel {
         }
 
         let mut dns_servers = Vec::new();
+        let mut primary_adapter_name_result = String::new();
 
         unsafe {
             let mut current = buffer.as_ptr() as PIP_ADAPTER_ADDRESSES;
-            while !(*current).IsNullAddr() {
+            while !current.is_null() {
                 let if_index = (*current).IfIndex;
                 if if_index == primary_if_index {
+                    // Get primary adapter name
+                    if let Some(name_ptr) = (*current).FriendlyName.0.as_ref() {
+                        let name_len = (0..1024)
+                            .take_while(|&i| *(*current).FriendlyName.0.add(i) != 0)
+                            .count();
+                        let name_str = std::ffi::OsStr::from_wide(std::slice::from_raw_parts(
+                            (*current).FriendlyName.0,
+                            name_len,
+                        ));
+                        if let Ok(name) = name_str.and_then(|n| n.to_str()) {
+                            primary_adapter_name_result = name.to_string();
+                        }
+                    }
+
+                    // Get DNS servers
                     let mut dns_ptr = (*current).FirstDnsServerAddress;
                     while !dns_ptr.is_null() {
                         let sockaddr_ptr = (*dns_ptr).Sockaddr;
@@ -681,7 +747,98 @@ impl WireGuardTunnel {
             }
         }
 
+        // Store primary adapter name for later restoration
+        if !primary_adapter_name_result.is_empty() {
+            *self
+                .primary_adapter_name
+                .lock()
+                .map_err(|e| e.to_string())? = Some(primary_adapter_name_result);
+        }
+
         Ok(dns_servers)
+    }
+
+    #[cfg(target_os = "windows")]
+    fn restore_primary_dns(&self) -> Result<(), String> {
+        use std::process::Command;
+        // Restore DNS on the primary (non-tunnel) adapter
+        let primary_adapter_name = match self
+            .primary_adapter_name
+            .lock()
+            .map_err(|e| e.to_string())?
+            .as_ref()
+        {
+            Some(name) => name.clone(),
+            None => return Ok(()), // No primary adapter saved, nothing to restore
+        };
+
+        let original_dns = self.original_dns.lock().map_err(|e| e.to_string())?.clone();
+
+        if original_dns.is_empty() {
+            // Reset to DHCP if no original DNS
+            let output = Command::new("netsh")
+                .args([
+                    "interface",
+                    "ip",
+                    "set",
+                    "dns",
+                    &format!("name={}", primary_adapter_name),
+                    "source=dhcp",
+                ])
+                .output()
+                .map_err(|e| format!("Failed to execute netsh: {}", e))?;
+
+            if !output.status.success() {
+                tracing::warn!(
+                    "netsh dns reset to DHCP failed for primary adapter: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
+        } else {
+            // Restore original DNS servers
+            let output = Command::new("netsh")
+                .args([
+                    "interface",
+                    "ip",
+                    "set",
+                    "dns",
+                    &format!("name={}", primary_adapter_name),
+                    "source=static",
+                    &format!("addr={}", original_dns[0]),
+                ])
+                .output()
+                .map_err(|e| format!("Failed to execute netsh: {}", e))?;
+
+            if !output.status.success() {
+                tracing::warn!(
+                    "netsh dns restore failed for primary adapter: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
+
+            for server in original_dns.iter().skip(1) {
+                let output = Command::new("netsh")
+                    .args([
+                        "interface",
+                        "ip",
+                        "add",
+                        "dns",
+                        &format!("name={}", primary_adapter_name),
+                        &format!("addr={}", server),
+                        "register=primary",
+                    ])
+                    .output()
+                    .map_err(|e| format!("Failed to execute netsh: {}", e))?;
+
+                if !output.status.success() {
+                    tracing::warn!(
+                        "netsh dns add failed: {}",
+                        String::from_utf8_lossy(&output.stderr)
+                    );
+                }
+            }
+        }
+        Ok(())
     }
 
     #[cfg(target_os = "windows")]
@@ -724,7 +881,7 @@ impl WireGuardTunnel {
 
         unsafe {
             let mut current = buffer.as_ptr() as PIP_ADAPTER_ADDRESSES;
-            while !(*current).IsNullAddr() {
+            while !current.is_null() {
                 let friendly_name = (*current).FriendlyName;
                 if !friendly_name.is_null() {
                     let name_str = std::ffi::OsStr::from_wide(std::slice::from_raw_parts(
@@ -931,6 +1088,11 @@ impl WireGuardTunnel {
 
     #[cfg(not(target_os = "windows"))]
     fn restore_dns(&self, _servers: &[String]) -> Result<(), String> {
+        Ok(())
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn restore_primary_dns(&self) -> Result<(), String> {
         Ok(())
     }
 
