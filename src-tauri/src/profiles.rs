@@ -39,22 +39,23 @@ fn default_weight() -> f32 {
 }
 
 pub fn load_profile(id: &str) -> Result<Profile, String> {
-    // Сохраняем оригинальное поведение: профиль конструируется по id.
-    // Реальная загрузка из файлового хранилища — отдельная задача (см. roadmap).
-    // Build absolute config path relative to executable location
-    let wg_config_path = (|| {
-        let exe_path = std::env::current_exe()
-            .map_err(|e| format!("Failed to get exe path: {}", e))?;
-        let exe_dir = exe_path.parent()
-            .map(|p| p.to_path_buf())
-            .ok_or_else(|| "Failed to get exe parent directory".to_string())?;
-        Ok::<_, String>(exe_dir
+// Реальная загрузка из файлового хранилища — отдельная задача (см. roadmap).
+// Build absolute config path relative to executable location
+let wg_config_path = (|| {
+    let exe_path = std::env::current_exe().map_err(|e| format!("Failed to get exe path: {}", e))?;
+    let exe_dir = exe_path
+        .parent()
+        .map(|p| p.to_path_buf())
+        .ok_or_else(|| "Failed to get exe parent directory".to_string())?;
+    Ok::<_, String>(
+        exe_dir
             .join("profiles")
             .join(format!("{}.conf", id))
             .into_os_string()
             .into_string()
-            .map_err(|_| "Config path contains non-UTF8 characters".to_string())?)
-    })()?;
+            .map_err(|_| "Config path contains non-UTF8 characters".to_string())?,
+    )
+})()?;
 
     Ok(Profile {
         id: id.to_string(),
