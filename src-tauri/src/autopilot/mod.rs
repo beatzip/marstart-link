@@ -157,7 +157,7 @@ impl Autopilot {
         let new_fsm = self.next_fsm(snap, &current, game, &candidates, now_ms);
         let recommended = candidates.first().map(|(id, _, _)| id.clone());
 
-        let (new_streak, new_last_recommended) = {
+        let (new_streak, _new_last_recommended) = {
             let g = self.inner.read();
             let lr = g.last_recommended.clone();
             if lr == recommended {
