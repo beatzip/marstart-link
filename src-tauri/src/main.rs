@@ -20,7 +20,7 @@ mod wireguard_config;
 mod wireguard_parser;
 mod wireguard_serializer;
 
-use base64::Engine;
+use crate::profiles::Profile;
 use std::sync::{Arc, Mutex};
 use tauri::State;
 

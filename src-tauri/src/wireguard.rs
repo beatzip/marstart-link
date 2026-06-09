@@ -10,13 +10,14 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 #[cfg(target_os = "windows")]
-use windows::core::s;
+use PCWSTR;
 #[cfg(target_os = "windows")]
 use windows::Win32::Foundation::{FARPROC, HANDLE, NTSTATUS, WIN32_ERROR};
 #[cfg(target_os = "windows")]
 use windows::Win32::Networking::WinSock::{AF_INET, SOCKADDR_IN};
 #[cfg(target_os = "windows")]
 use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
+use base64::Engine;
 
 /// Returns path to DLL next to the executable
 fn get_dll_path(dll_name: &str) -> PathBuf {
@@ -60,15 +61,15 @@ pub struct ConnectionInfo {
     pub endpoint: Option<String>,
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(not(target_os = "windows"))]
 pub struct WireGuardTunnel {
     adapter_name: String,
-    config: ParsedConfig,
+    config: crate::wireguard_config::ParsedConfig,
     status: Mutex<TunnelStatus>,
     counters: Arc<TunnelCounters>,
     interface_index: Mutex<u32>,
     created_routes: Mutex<Vec<(std::net::IpAddr, u8)>>,
-    connect_time: Option<Instant>,
+    connect_time: Option<std::time::Instant>,
     adapter_handle: Mutex<Option<HANDLE>>,
     original_dns: Mutex<Vec<String>>,
     /// Имя основного (non-tunnel) адаптера для восстановления DNS
@@ -157,7 +158,7 @@ impl WireGuardTunnel {
                 .encode_wide()
                 .chain(std::iter::once(0))
                 .collect();
-            let wg_lib = unsafe { LoadLibraryW(windows::core::PCWSTR(dll_path_wide.as_ptr())) }
+            let wg_lib = unsafe { LoadLibraryW(PCWSTR(dll_path_wide.as_ptr())) }
                 .map_err(|e| format!("Failed to load wireguard.dll from {:?}: {}", dll_path, e))?;
 
             let create_adapter: FARPROC = unsafe {
@@ -295,7 +296,7 @@ impl WireGuardTunnel {
             .encode_wide()
             .chain(std::iter::once(0))
             .collect();
-        if let Ok(lib) = unsafe { LoadLibraryW(windows::core::PCWSTR(dll_path_wide.as_ptr())) } {
+        if let Ok(lib) = unsafe { LoadLibraryW(PCWSTR(dll_path_wide.as_ptr())) } {
             if let Ok(proc) = unsafe { GetProcAddress(lib, s!("WireGuardDeleteAdapter")) } {
                 let func: WireGuardDeleteAdapterFunc = unsafe { std::mem::transmute(proc.0) };
                 let tunnel_wide: Vec<u16> = std::ffi::OsStr::new(&self.adapter_name)
@@ -556,7 +557,7 @@ impl WireGuardTunnel {
             .encode_wide()
             .chain(std::iter::once(0))
             .collect();
-        let lib = match unsafe { LoadLibraryW(windows::core::PCWSTR(dll_path_wide.as_ptr())) } {
+        let lib = match unsafe { LoadLibraryW(PCWSTR(dll_path_wide.as_ptr())) } {
             Ok(l) => l,
             Err(_) => return Ok((0, 0, 0)),
         };
