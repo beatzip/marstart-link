@@ -43,30 +43,25 @@ async fn connect(profile_id: String, state: State<'_, AppState>) -> Result<(), S
     }
 
     // Create tunnel in blocking context
-    let tunnel = tokio::task::spawn_blocking(move || {
-        wireguard::WireGuardTunnel::new(&profile)
-    })
+let tunnel = tokio::task::spawn_blocking(move || wireguard::WireGuardTunnel::new(&profile))
     .await
     .map_err(|e| e.to_string())??;
 
-    // Connect in blocking context, returning tunnel regardless of result
-    let (tunnel, connect_result) = tokio::task::spawn_blocking(move || {
-        let mut t = tunnel;
-        let result = t.connect();
-        (t, result)
-    })
-    .await
-    .map_err(|e| e.to_string())?;
+// Connect in blocking context, returning tunnel regardless of result
+let (tunnel, connect_result) = tokio::task::spawn_blocking(move || {
+    let mut tunnel = tunnel;
+    let result = tunnel.connect();
+    (tunnel, result)
+})
+.await
+.map_err(|e| e.to_string())?;
 
-    if let Err(e) = connect_result {
-        // Cleanup on connect failure - ensure adapter is removed from system
-        let _ = tokio::task::spawn_blocking(move || {
-            tunnel.teardown()
-        })
-        .await;
-        return Err(e);
-    }
-    *guard = Some(tunnel);
+if let Err(e) = connect_result {
+    // Cleanup on connect failure - ensure adapter is removed from system
+    let _ = tokio::task::spawn_blocking(move || tunnel.teardown()).await;
+    return Err(e);
+}
+*guard = Some(tunnel);
     Ok(())
 }
 
@@ -75,12 +70,10 @@ async fn disconnect(state: State<'_, AppState>) -> Result<(), String> {
     let mut guard = state.tunnel.lock().map_err(|e| e.to_string())?;
     if let Some(tunnel) = guard.take() {
         // Teardown in blocking context, errors are tolerant
-        let _ = tokio::task::spawn_blocking(move || {
-            tunnel.teardown()
-        })
-        .await
-        .map_err(|e| e.to_string())?
-        .map_err(|e| e.to_string());
+let _ = tokio::task::spawn_blocking(move || tunnel.teardown())
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string());
         // Teardown errors are logged but don't fail the disconnect operation
     }
     Ok(())
