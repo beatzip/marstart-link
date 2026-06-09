@@ -239,8 +239,8 @@ impl RouteManager {
             let cur_health = current
                 .as_ref()
                 .map(|id| snap.health_of(id))
-                .unwrap_or(Health::Unknown);
-            if cur_health == Health::Bad {
+                .unwrap_or(RouteHealth::Unknown);
+            if cur_health == RouteHealth::Bad {
                 EvalReason::EmergencyBypass
             } else if !self.can_switch() {
                 EvalReason::CooldownBlocked
@@ -514,7 +514,7 @@ mod tests {
         for _ in 0..4 {
             let _ = snap.refresh_now();
         }
-        assert_eq!(mgr.health_of("a"), Health::Bad);
+        assert_eq!(mgr.health_of("a"), RouteHealth::Bad);
         let ev = mgr.evaluate();
         assert_eq!(ev.recommended.as_deref(), Some("b"));
         assert_eq!(ev.reason, EvalReason::EmergencyBypass);
