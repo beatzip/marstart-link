@@ -1,5 +1,11 @@
+#![allow(unused_imports)]
+
 #[cfg(target_os = "windows")]
-use crate::wireguard_config::{ParsedConfig, WIREGUARD_KEY_LENGTH};
+use crate::wireguard_config::WIREGUARD_KEY_LENGTH;
+#[cfg(not(target_os = "windows"))]
+pub const WIREGUARD_KEY_LENGTH: usize = 32; // заглушка, чтобы код компилировался
+
+use crate::wireguard_config::ParsedConfig;
 use crate::wireguard_parser::{parse_wireguard_config, validate_config};
 #[cfg(target_os = "windows")]
 use crate::wireguard_serializer::{read_peer_stats, serialize_config};
@@ -14,13 +20,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 #[cfg(target_os = "windows")]
-use windows::Win32::Foundation::{FARPROC, HANDLE, NTSTATUS, WIN32_ERROR};
+use windows::Win32::Foundation::{FARPROC, HANDLE, NTSTATUS, PCWSTR, WIN32_ERROR};
 #[cfg(target_os = "windows")]
 use windows::Win32::Networking::WinSock::{AF_INET, SOCKADDR_IN};
 #[cfg(target_os = "windows")]
 use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
 #[cfg(target_os = "windows")]
-use PCWSTR;
+use windows::core::s;
 
 /// Returns path to DLL next to the executable
 fn get_dll_path(dll_name: &str) -> PathBuf {
@@ -106,7 +112,8 @@ type WireGuardGetConfigurationFunc = unsafe extern "system" fn(
 
 #[cfg(not(target_os = "windows"))]
 impl WireGuardTunnel {
-    pub fn new(profile: &crate::profiles::Profile) -> Result<Self, String> {
+    pub fn new(_profile: &crate::profiles::Profile) -> Result<Self, String> {
+        Err("WireGuard only supported on Windows".to_string())
         let private_key = keyring::Entry::new("GameAccelerator", &profile.id)
             .map_err(|e| e.to_string())?
             .get_password()
@@ -150,146 +157,139 @@ impl WireGuardTunnel {
     }
 
     pub fn connect(&mut self) -> Result<(), String> {
-        *self.status.lock().map_err(|e| e.to_string())? = TunnelStatus::Connecting;
+        Err("WireGuard only supported on Windows".to_string())
+    }
+    *self.status.lock().map_err(|e| e.to_string())? = TunnelStatus::Connecting;
 
-        #[cfg(target_os = "windows")]
-        use std::os::windows::ffi::OsStrExt;
-        {
-            // Load WireGuard DLL from same directory as executable
-            let dll_path = get_dll_path("wireguard.dll");
-            let dll_path_wide: Vec<u16> = std::ffi::OsStr::new(&dll_path)
-                .encode_wide()
-                .chain(std::iter::once(0))
-                .collect();
-            let wg_lib = unsafe { LoadLibraryW(PCWSTR(dll_path_wide.as_ptr())) }
-                .map_err(|e| format!("Failed to load wireguard.dll from {:?}: {}", dll_path, e))?;
+    #[cfg(target_os = "windows")]
+    {
+        // --- Весь Windows-код из оригинального метода переносим сюда ---
+        // Начало: загрузка DLL, создание адаптера и т.д.
+        use std::os::windows::ffi::OsStrExt; // нужно здесь, потому что метод может вызываться в любом контексте
 
-            let create_adapter: FARPROC = unsafe {
-                GetProcAddress(wg_lib, s!("WireGuardCreateAdapter"))
-                    .map_err(|e| format!("WireGuardCreateAdapter not found: {}", e))?
-            };
+        let dll_path = get_dll_path("wireguard.dll");
+        let dll_path_wide: Vec<u16> = std::ffi::OsStr::new(&dll_path)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        let wg_lib = unsafe { LoadLibraryW(PCWSTR(dll_path_wide.as_ptr())) }
+            .map_err(|e| format!("Failed to load wireguard.dll from {:?}: {}", dll_path, e))?;
 
-            let tunnel_wide: Vec<u16> = std::ffi::OsStr::new(&self.adapter_name)
-                .encode_wide()
-                .chain(std::iter::once(0))
-                .collect();
-            let tunnel_name = windows::Win32::Foundation::PCWSTR(tunnel_wide.as_ptr());
+        let create_adapter: FARPROC = unsafe {
+            GetProcAddress(wg_lib, s!("WireGuardCreateAdapter"))
+                .map_err(|e| format!("WireGuardCreateAdapter not found: {}", e))?
+        };
 
-            let handle: HANDLE = unsafe {
-                let func: WireGuardCreateAdapterFunc = std::mem::transmute(create_adapter.0);
-                func(0, tunnel_name, tunnel_name)
-            };
+        let tunnel_wide: Vec<u16> = std::ffi::OsStr::new(&self.adapter_name)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        let tunnel_name = PCWSTR(tunnel_wide.as_ptr());
 
-            if handle.0 == ptr::null_mut() {
-                *self.status.lock().map_err(|e| e.to_string())? =
-                    TunnelStatus::Error("Failed to create adapter".to_string());
-                return Err("Failed to create WireGuard adapter".to_string());
+        let handle: HANDLE = unsafe {
+            let func: WireGuardCreateAdapterFunc = std::mem::transmute(create_adapter.0);
+            func(0, tunnel_name, tunnel_name)
+        };
+
+        if handle.0 == ptr::null_mut() {
+            *self.status.lock().map_err(|e| e.to_string())? =
+                TunnelStatus::Error("Failed to create adapter".to_string());
+            return Err("Failed to create WireGuard adapter".to_string());
+        }
+
+        *self.adapter_handle.lock().map_err(|e| e.to_string())? = Some(handle);
+
+        let if_index = match self.query_interface_index(handle) {
+            Ok(idx) => idx,
+            Err(e) => {
+                self.cleanup_adapter_handle()?;
+                return Err(e);
             }
+        };
+        *self.interface_index.lock().map_err(|e| e.to_string())? = if_index;
 
-            // Store handle immediately for cleanup on error
-            *self.adapter_handle.lock().map_err(|e| e.to_string())? = Some(handle);
+        *self.original_dns.lock().map_err(|e| e.to_string())? =
+            self.get_primary_adapter_dns()?;
 
-            // Get interface index with cleanup on error
-            let if_index = match self.query_interface_index(handle) {
-                Ok(idx) => idx,
-                Err(e) => {
-                    self.cleanup_adapter_handle()?;
-                    return Err(e);
-                }
-            };
-            *self.interface_index.lock().map_err(|e| e.to_string())? = if_index;
+        let dns_changed = !self.config.dns_servers.is_empty();
+        if dns_changed {
+            self.set_dns(&self.config.dns_servers)?;
+        }
 
-            // Clear previous DNS state for clean reconnect
-            *self.original_dns.lock().map_err(|e| e.to_string())? =
-                self.get_primary_adapter_dns()?;
+        let config_blob = serialize_config(&self.config)
+            .map_err(|e| format!("Failed to serialize config: {}", e))?;
 
-            // Apply tunnel DNS if configured
-            let dns_changed = !self.config.dns_servers.is_empty();
+        let set_config: FARPROC = unsafe {
+            GetProcAddress(wg_lib, s!("WireGuardSetConfiguration"))
+                .map_err(|e| format!("WireGuardSetConfiguration not found: {}", e))?
+        };
+
+        let status: NTSTATUS = unsafe {
+            let func: WireGuardSetConfigurationFunc = std::mem::transmute(set_config.0);
+            func(
+                handle,
+                config_blob.as_ptr() as *const std::ffi::c_void,
+                config_blob.len() as u32,
+            )
+        };
+
+        if status != NTSTATUS(0) {
+            *self.status.lock().map_err(|e| e.to_string())? =
+                TunnelStatus::Error(format!("WireGuardSetConfiguration failed: {:?}", status));
             if dns_changed {
-                self.set_dns(&self.config.dns_servers)?;
+                let _ = self.reset_adapter_dns();
             }
+            self.cleanup_adapter_handle()?;
+            return Err("Failed to set WireGuard configuration".to_string());
+        }
 
-            // Apply configuration
-            let config_blob = serialize_config(&self.config)
-                .map_err(|e| format!("Failed to serialize config: {}", e))?;
+        let mut added_routes: Vec<(std::net::IpAddr, u8)> = Vec::new();
 
-            let set_config: FARPROC = unsafe {
-                GetProcAddress(wg_lib, s!("WireGuardSetConfiguration"))
-                    .map_err(|e| format!("WireGuardSetConfiguration not found: {}", e))?
-            };
-
-            let status: NTSTATUS = unsafe {
-                let func: WireGuardSetConfigurationFunc = std::mem::transmute(set_config.0);
-                func(
-                    handle,
-                    config_blob.as_ptr() as *const std::ffi::c_void,
-                    config_blob.len() as u32,
-                )
-            };
-
-            if status != NTSTATUS(0) {
-                *self.status.lock().map_err(|e| e.to_string())? =
-                    TunnelStatus::Error(format!("WireGuardSetConfiguration failed: {:?}", status));
-                // Rollback DNS if it was changed
-                if !self.config.dns_servers.is_empty() {
+        if let (Some(addr), Some(prefix)) =
+            (self.config.interface_address, self.config.interface_prefix)
+        {
+            if let Err(e) = self.create_route(addr, prefix) {
+                if dns_changed {
                     let _ = self.reset_adapter_dns();
                 }
                 self.cleanup_adapter_handle()?;
-                return Err("Failed to set WireGuard configuration".to_string());
+                return Err(e);
             }
+            added_routes.push((addr, prefix));
+        }
 
-            // Create routes with real interface index
-            // Track added routes for rollback on error
-            let mut added_routes: Vec<(std::net::IpAddr, u8)> = Vec::new();
-
-            // First create route for interface address itself
-            if let (Some(addr), Some(prefix)) =
-                (self.config.interface_address, self.config.interface_prefix)
-            {
-                if let Err(e) = self.create_route(addr, prefix) {
-                    // Rollback DNS if it was changed
+        if let Some(peer) = self.config.peers.first() {
+            for aip in &peer.allowed_ips {
+                if let Err(e) = self.create_route(aip.address, aip.cidr) {
+                    for route in added_routes.iter().rev() {
+                        let _ = self.delete_route(route.0, route.1);
+                    }
                     if dns_changed {
                         let _ = self.reset_adapter_dns();
                     }
                     self.cleanup_adapter_handle()?;
                     return Err(e);
                 }
-                added_routes.push((addr, prefix));
+                added_routes.push((aip.address, aip.cidr));
             }
-
-            if let Some(peer) = self.config.peers.first() {
-                for aip in &peer.allowed_ips {
-                    if let Err(e) = self.create_route(aip.address, aip.cidr) {
-                        // Rollback routes in reverse order
-                        for route in added_routes.iter().rev() {
-                            let _ = self.delete_route(route.0, route.1);
-                        }
-                        // Rollback DNS if it was changed
-                        if dns_changed {
-                            let _ = self.reset_adapter_dns();
-                        }
-                        self.cleanup_adapter_handle()?;
-                        return Err(e);
-                    }
-                    added_routes.push((aip.address, aip.cidr));
-                }
-            }
-            // Store routes for later cleanup
-            self.created_routes
-                .lock()
-                .map_err(|e| e.to_string())?
-                .extend(added_routes.iter().cloned());
         }
 
-        #[cfg(not(target_os = "windows"))]
-        {
-            return Err("WireGuard only supported on Windows".to_string());
-        }
+        self.created_routes
+            .lock()
+            .map_err(|e| e.to_string())?
+            .extend(added_routes.iter().cloned());
 
         *self.status.lock().map_err(|e| e.to_string())? = TunnelStatus::Connected;
         self.connect_time = Some(Instant::now());
         Ok(())
+        // --- Конец Windows-кода ---
     }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err("WireGuard only supported on Windows".to_string())
+    }
+}
 
     #[cfg(target_os = "windows")]
     fn delete_adapter(&self, handle: HANDLE) -> Result<(), String> {
@@ -522,6 +522,7 @@ impl WireGuardTunnel {
     }
 
     pub fn status(&self) -> TunnelStatus {
+        TunnelStatus::Disconnected
         self.status
             .lock()
             .map(|g| g.clone())
