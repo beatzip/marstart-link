@@ -2,15 +2,20 @@ use crate::wireguard_config::{ParsedConfig, WIREGUARD_KEY_LENGTH};
 use crate::wireguard_parser::{parse_wireguard_config, validate_config};
 use crate::wireguard_serializer::{read_peer_stats, serialize_config};
 use serde::{Deserialize, Serialize};
+#[cfg(target_os = "windows")]
 use std::os::windows::ffi::OsStrExt;
 use std::path::PathBuf;
 use std::ptr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+#[cfg(target_os = "windows")]
 use windows::core::s;
+#[cfg(target_os = "windows")]
 use windows::Win32::Foundation::{FARPROC, HANDLE, NTSTATUS, WIN32_ERROR};
+#[cfg(target_os = "windows")]
 use windows::Win32::Networking::WinSock::{AF_INET, SOCKADDR_IN};
+#[cfg(target_os = "windows")]
 use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
 
 /// Returns path to DLL next to the executable
@@ -55,6 +60,7 @@ pub struct ConnectionInfo {
     pub endpoint: Option<String>,
 }
 
+#[cfg(target_os = "windows")]
 pub struct WireGuardTunnel {
     adapter_name: String,
     config: ParsedConfig,
@@ -69,27 +75,32 @@ pub struct WireGuardTunnel {
     primary_adapter_name: Mutex<Option<String>>,
 }
 
+#[cfg(target_os = "windows")]
 type WireGuardCreateAdapterFunc = unsafe extern "system" fn(
     flags: u32,
     adapter_name: windows::Win32::Foundation::PCWSTR,
     tunnel_name: windows::Win32::Foundation::PCWSTR,
 ) -> HANDLE;
 
+#[cfg(target_os = "windows")]
 type WireGuardDeleteAdapterFunc =
     unsafe extern "system" fn(adapter: HANDLE, adapter_name: windows::Win32::Foundation::PCWSTR);
 
+#[cfg(target_os = "windows")]    
 type WireGuardSetConfigurationFunc = unsafe extern "system" fn(
     adapter: HANDLE,
     config_bytes: *const std::ffi::c_void,
     config_size: u32,
 ) -> NTSTATUS;
 
+#[cfg(target_os = "windows")]
 type WireGuardGetConfigurationFunc = unsafe extern "system" fn(
     adapter: HANDLE,
     config_bytes: *mut std::ffi::c_void,
     config_size: *mut u32,
 ) -> NTSTATUS;
 
+#[cfg(not(target_os = "windows"))]
 impl WireGuardTunnel {
     pub fn new(profile: &crate::profiles::Profile) -> Result<Self, String> {
         let private_key = keyring::Entry::new("GameAccelerator", &profile.id)
@@ -138,6 +149,7 @@ impl WireGuardTunnel {
         *self.status.lock().map_err(|e| e.to_string())? = TunnelStatus::Connecting;
 
         #[cfg(target_os = "windows")]
+        use std::os::windows::ffi::OsStrExt;
         {
             // Load WireGuard DLL from same directory as executable
             let dll_path = get_dll_path("wireguard.dll");
@@ -508,7 +520,7 @@ impl WireGuardTunnel {
     pub fn status(&self) -> TunnelStatus {
         self.status
             .lock()
-            .map_err(|e| e.to_string())
+            .map(|g| *g)
             .unwrap_or(TunnelStatus::Disconnected)
     }
 

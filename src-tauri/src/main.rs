@@ -22,6 +22,7 @@ mod wireguard_serializer;
 
 use std::sync::{Arc, Mutex};
 use tauri::State;
+use base64::Engine;
 
 #[derive(Clone)]
 struct AppState {
@@ -29,25 +30,11 @@ struct AppState {
 }
 
 #[tauri::command]
-async fn connect(profile_id: String, state: State<'_, AppState>) -> Result<(), String> {
-    let mut guard = state.tunnel.lock().map_err(|e| e.to_string())?;
-    if guard.is_some() {
-        return Err("Туннель уже активен".into());
-    }
-    let profile = profiles::load_profile(&profile_id)?;
-    // Verify config file exists
-    if let Some(ref config_path) = profile.wg_config_path {
-        if !std::path::Path::new(config_path).exists() {
-            return Err(format!("WireGuard config not found: {}", config_path));
-        }
-    }
-
-    // Create tunnel in blocking context
+async fn connect(profile: Profile, state: State<'_, AppState>) -> Result<(), String> {
     let tunnel = tokio::task::spawn_blocking(move || wireguard::WireGuardTunnel::new(&profile))
         .await
         .map_err(|e| e.to_string())??;
 
-    // Connect in blocking context, returning tunnel regardless of result
     let (tunnel, connect_result) = tokio::task::spawn_blocking(move || {
         let mut tunnel = tunnel;
         let result = tunnel.connect();
@@ -57,25 +44,30 @@ async fn connect(profile_id: String, state: State<'_, AppState>) -> Result<(), S
     .map_err(|e| e.to_string())?;
 
     if let Err(e) = connect_result {
-        // Cleanup on connect failure - ensure adapter is removed from system
         let _ = tokio::task::spawn_blocking(move || tunnel.teardown()).await;
         return Err(e);
     }
+
+    let mut guard = state.tunnel.lock().map_err(|e| e.to_string())?;
     *guard = Some(tunnel);
+
     Ok(())
 }
 
 #[tauri::command]
 async fn disconnect(state: State<'_, AppState>) -> Result<(), String> {
-    let mut guard = state.tunnel.lock().map_err(|e| e.to_string())?;
-    if let Some(tunnel) = guard.take() {
-        // Teardown in blocking context, errors are tolerant
+    let tunnel = {
+        let mut guard = state.tunnel.lock().map_err(|e| e.to_string())?;
+        guard.take()
+    };
+
+    if let Some(tunnel) = tunnel {
         let _ = tokio::task::spawn_blocking(move || tunnel.teardown())
             .await
             .map_err(|e| e.to_string())?
             .map_err(|e| e.to_string());
-        // Teardown errors are logged but don't fail the disconnect operation
     }
+
     Ok(())
 }
 

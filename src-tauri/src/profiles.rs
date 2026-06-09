@@ -62,6 +62,6 @@ pub fn load_profile(id: &str) -> Result<Profile, String> {
         id: id.to_string(),
         display_name: id.to_string(),
         endpoints: Vec::new(),
-        wg_config_path,
+        wg_config_path: Some(wg_config_path),
     })
 }
