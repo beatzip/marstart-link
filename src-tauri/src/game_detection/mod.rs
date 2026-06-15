@@ -14,8 +14,8 @@ use chrono::Utc;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashSet, VecDeque};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
+use std::sync::Arc;
 use sysinfo::{ProcessesToUpdate, System};
 
 const SCAN_THROTTLE_MS: i64 = 1000;
@@ -217,7 +217,7 @@ impl GameDetector {
                     reason,
                     timestamp_ms: now,
                 };
-                if best.as_ref().map_or(true, |b| confidence > b.confidence) {
+                if best.as_ref().is_none_or(|b| confidence > b.confidence) {
                     best = Some(sig);
                 }
             }

@@ -13,8 +13,8 @@ use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::net::IpAddr;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct FlowKey {
@@ -25,17 +25,12 @@ pub struct FlowKey {
     pub proto: u8,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub enum LbStrategy {
     RoundRobin,
+    #[default]
     LeastLatency,
     WeightedHash,
-}
-
-impl Default for LbStrategy {
-    fn default() -> Self {
-        LbStrategy::LeastLatency
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -10,8 +10,8 @@ use crate::profiles::EndpointSpec;
 use crate::routes::{RouteEvaluation, RouteManager, RouteState};
 use crate::snapshot::RouteSnapshotEngine;
 use serde::Serialize;
-use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct RegistryState {
@@ -59,10 +59,12 @@ impl RouteRegistry {
 
         // Update all subsystems
         self.routes.set_candidates(specs);
-        self.snapshot.set_targets(targets.iter().map(|t| t.id.clone()).collect());
+        self.snapshot
+            .set_targets(targets.iter().map(|t| t.id.clone()).collect());
         self.monitor.set_targets(targets);
 
-        self.initialized.store(true, std::sync::atomic::Ordering::Relaxed);
+        self.initialized
+            .store(true, std::sync::atomic::Ordering::Relaxed);
         Ok(())
     }
 

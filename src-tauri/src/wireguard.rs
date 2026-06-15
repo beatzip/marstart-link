@@ -12,18 +12,15 @@ use std::time::{Duration, Instant};
 #[cfg(target_os = "windows")]
 use std::os::windows::ffi::OsStrExt;
 #[cfg(target_os = "windows")]
-use windows::Win32::Foundation::{BOOL, HANDLE, PCWSTR};
+use windows::core::{s, PCWSTR};
 #[cfg(target_os = "windows")]
-use windows::Win32::System::LibraryLoader::{FreeLibrary, GetProcAddress, HMODULE, LoadLibraryW};
+use windows::Win32::Foundation::{FreeLibrary, BOOL, HANDLE, HMODULE};
 #[cfg(target_os = "windows")]
-use windows::core::s;
+use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
 
 #[cfg(target_os = "windows")]
-type WireGuardCreateAdapterFunc = unsafe extern "system" fn(
-    flags: u32,
-    adapter_name: PCWSTR,
-    tunnel_name: PCWSTR,
-) -> HANDLE;
+type WireGuardCreateAdapterFunc =
+    unsafe extern "system" fn(flags: u32, adapter_name: PCWSTR, tunnel_name: PCWSTR) -> HANDLE;
 
 #[cfg(target_os = "windows")]
 type WireGuardSetConfigurationFunc = unsafe extern "system" fn(
@@ -40,8 +37,7 @@ type WireGuardGetConfigurationFunc = unsafe extern "system" fn(
 ) -> BOOL;
 
 #[cfg(target_os = "windows")]
-type WireGuardDeleteAdapterFunc =
-    unsafe extern "system" fn(adapter: HANDLE, adapter_name: PCWSTR);
+type WireGuardDeleteAdapterFunc = unsafe extern "system" fn(adapter: HANDLE, adapter_name: PCWSTR);
 
 fn get_dll_path(dll_name: &str) -> PathBuf {
     let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("."));
@@ -129,26 +125,46 @@ impl WireGuardTunnel {
                 .map_err(|e| format!("failed to load wireguard.dll: {e}"))?;
             let create_proc = unsafe {
                 GetProcAddress(lib, s!("WireGuardCreateAdapter"))
-                    .map_err(|e| format!("WireGuardCreateAdapter not found: {e}"))?
+                    .ok_or_else(|| "WireGuardCreateAdapter not found".to_string())?
             };
             let delete_proc = unsafe {
                 GetProcAddress(lib, s!("WireGuardDeleteAdapter"))
-                    .map_err(|e| format!("WireGuardDeleteAdapter not found: {e}"))?
+                    .ok_or_else(|| "WireGuardDeleteAdapter not found".to_string())?
             };
             let set_cfg_proc = unsafe {
                 GetProcAddress(lib, s!("WireGuardSetConfiguration"))
-                    .map_err(|e| format!("WireGuardSetConfiguration not found: {e}"))?
+                    .ok_or_else(|| "WireGuardSetConfiguration not found".to_string())?
             };
             let get_cfg_proc = unsafe {
                 GetProcAddress(lib, s!("WireGuardGetConfiguration"))
-                    .map_err(|e| format!("WireGuardGetConfiguration not found: {e}"))?
+                    .ok_or_else(|| "WireGuardGetConfiguration not found".to_string())?
             };
             (
                 lib,
-                std::mem::transmute(create_proc.0),
-                std::mem::transmute(delete_proc.0),
-                std::mem::transmute(set_cfg_proc.0),
-                std::mem::transmute(get_cfg_proc.0),
+                unsafe {
+                    std::mem::transmute::<
+                        unsafe extern "system" fn() -> isize,
+                        unsafe extern "system" fn(u32, PCWSTR, PCWSTR) -> HANDLE,
+                    >(create_proc)
+                },
+                unsafe {
+                    std::mem::transmute::<
+                        unsafe extern "system" fn() -> isize,
+                        unsafe extern "system" fn(HANDLE, PCWSTR),
+                    >(delete_proc)
+                },
+                unsafe {
+                    std::mem::transmute::<
+                        unsafe extern "system" fn() -> isize,
+                        unsafe extern "system" fn(HANDLE, *const std::ffi::c_void, u32) -> BOOL,
+                    >(set_cfg_proc)
+                },
+                unsafe {
+                    std::mem::transmute::<
+                        unsafe extern "system" fn() -> isize,
+                        unsafe extern "system" fn(HANDLE, *mut std::ffi::c_void, *mut u32) -> BOOL,
+                    >(get_cfg_proc)
+                },
             )
         };
 
@@ -206,11 +222,9 @@ impl WireGuardTunnel {
     fn connect_impl(&mut self) -> Result<(), String> {
         let tunnel_wide = wide_str(&self.adapter_name);
         let tunnel_name = PCWSTR(tunnel_wide.as_ptr());
-        let handle = unsafe {
-            (self.fn_create)(0, tunnel_name, tunnel_name)
-        };
+        let handle = unsafe { (self.fn_create)(0, tunnel_name, tunnel_name) };
 
-        if handle.0.is_null() {
+        if handle.0 == 0 {
             return Err("failed to create WireGuard adapter".to_string());
         }
 
@@ -313,7 +327,7 @@ impl WireGuardTunnel {
         let tunnel_wide = wide_str(&self.adapter_name);
         unsafe {
             (self.fn_delete)(handle, PCWSTR(tunnel_wide.as_ptr()));
-            windows::Win32::Foundation::CloseHandle(handle);
+            let _ = windows::Win32::Foundation::CloseHandle(handle);
         }
         Ok(())
     }
@@ -330,9 +344,7 @@ impl WireGuardTunnel {
 
         let mut buffer = vec![0u8; buf_size as usize];
         // WireGuard-NT ABI: WireGuardGetConfiguration returns BOOL.
-        let ok = unsafe {
-            (self.fn_get_cfg)(handle, buffer.as_mut_ptr() as *mut _, &mut buf_size)
-        };
+        let ok = unsafe { (self.fn_get_cfg)(handle, buffer.as_mut_ptr() as *mut _, &mut buf_size) };
         if !ok.as_bool() {
             return Ok((0, 0, 0));
         }
