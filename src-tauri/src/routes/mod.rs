@@ -13,8 +13,8 @@ use parking_lot::RwLock;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::Instant;
 
 pub use crate::snapshot::Health as RouteHealth;
@@ -528,8 +528,8 @@ mod tests {
         set_targets_and_pump(&snap, &["a"]);
         seed_good(&metrics, "a", 30.0);
         let _ = snap.refresh_now();
-        assert_eq!(mgr.health_of("a"), Health::Good);
-        assert_eq!(mgr.health_of("missing"), Health::Unknown);
+        assert_eq!(mgr.health_of("a"), RouteHealth::Good);
+        assert_eq!(mgr.health_of("missing"), RouteHealth::Unknown);
     }
 
     #[test]

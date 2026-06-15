@@ -11,8 +11,8 @@ use chrono::Utc;
 use parking_lot::{Mutex, RwLock};
 use serde::Serialize;
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 use tokio::task::JoinHandle;
@@ -177,11 +177,11 @@ impl RouteSnapshotEngine {
         // TOCTOU fix: hold write lock across entire compute to prevent race
         // with set_targets. First, capture data we need from other sources.
         let selected = self.selected.read().clone();
-        
+
         let mut g = self.state.write();
         let ids: Vec<String> = g.targets.keys().cloned().collect();
         let mut routes: Vec<RouteSnapshot> = Vec::with_capacity(ids.len());
-        
+
         for id in &ids {
             let agg = self.metrics.aggregated(id);
             let (score, health_now) = match &agg {
@@ -203,8 +203,9 @@ impl RouteSnapshotEngine {
                 }
                 None => (health_now, 0),
             };
-            g.targets.insert(id.clone(), TrackedTarget { health, streak });
-            
+            g.targets
+                .insert(id.clone(), TrackedTarget { health, streak });
+
             let (latest, avg, jitter, loss, stab, samples) = match &agg {
                 Some(a) => (
                     a.latest_rtt_ms,

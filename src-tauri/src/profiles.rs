@@ -48,14 +48,12 @@ pub fn load_profile(id: &str) -> Result<Profile, String> {
             .parent()
             .map(|p| p.to_path_buf())
             .ok_or_else(|| "Failed to get exe parent directory".to_string())?;
-        Ok::<_, String>(
-            exe_dir
-                .join("profiles")
-                .join(format!("{}.conf", id))
-                .into_os_string()
-                .into_string()
-                .map_err(|_| "Config path contains non-UTF8 characters".to_string())?,
-        )
+        exe_dir
+            .join("profiles")
+            .join(format!("{}.conf", id))
+            .into_os_string()
+            .into_string()
+            .map_err(|_| "Config path contains non-UTF8 characters".to_string())
     })()?;
 
     Ok(Profile {

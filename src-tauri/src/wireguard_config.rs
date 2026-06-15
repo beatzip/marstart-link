@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 
 #[cfg(target_os = "windows")]
 use windows::Win32::Networking::WinSock::{
-    ADDRESS_FAMILY, AF_INET, AF_INET6, IN_ADDR, IN_ADDR_0, IN6_ADDR, SOCKADDR_INET,
+    ADDRESS_FAMILY, AF_INET, AF_INET6, IN6_ADDR, IN_ADDR, IN_ADDR_0, SOCKADDR_INET,
 };
 
 pub const WIREGUARD_KEY_LENGTH: usize = 32;

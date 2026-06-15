@@ -2,6 +2,7 @@
     all(not(debug_assertions), target_os = "windows"),
     windows_subsystem = "windows"
 )]
+#![allow(dead_code)]
 
 mod autopilot;
 mod events;
@@ -12,8 +13,8 @@ mod monitor;
 mod net_probe;
 mod profiles;
 mod ringbuf;
-mod routes;
 mod route_registry;
+mod routes;
 mod snapshot;
 mod utils;
 mod wireguard;
@@ -22,12 +23,12 @@ mod wireguard_parser;
 mod wireguard_serializer;
 
 use crate::autopilot::{Autopilot, AutopilotDecision, AutopilotIntent};
-use crate::events::{EV_AUTOPILOT_ACTION, EV_AUTOPILOT_STATE, EV_MONITOR_STATE, EV_ROUTE_CHANGED, EV_ROUTE_STATE};
+use crate::events::{EV_AUTOPILOT_ACTION, EV_AUTOPILOT_STATE};
 use crate::game_detection::{GameDetector, GameProfile, GameSignal};
 use crate::loadbalance::{FlowBinding, FlowKey, LbState, LbStrategy, LoadBalancer};
 use crate::metrics::{AggregatedMetrics, MetricsStore};
 use crate::monitor::{MonitorConfig, MonitorService, MonitorState, MonitorTarget};
-use crate::profiles::{EndpointSpec, Profile, load_profile};
+use crate::profiles::{load_profile, EndpointSpec, Profile};
 use crate::route_registry::RouteRegistry;
 use crate::routes::{RouteEvaluation, RouteManager, RouteState};
 use crate::snapshot::{RouteSnapshotEngine, Snapshot};
@@ -308,7 +309,10 @@ fn autopilot_get_state(state: State<'_, AppState>) -> Option<AutopilotDecision> 
 }
 
 #[tauri::command]
-fn autopilot_enable(app: AppHandle, state: State<'_, AppState>) -> Result<PlaceholderState, String> {
+fn autopilot_enable(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<PlaceholderState, String> {
     let autopilot = Arc::clone(&state.autopilot);
     let autopilot_handle = Arc::clone(&state.autopilot_handle);
     let snapshot = Arc::clone(&state.snapshot);
@@ -364,7 +368,11 @@ fn autopilot_enable(app: AppHandle, state: State<'_, AppState>) -> Result<Placeh
 
 #[tauri::command]
 fn autopilot_disable(state: State<'_, AppState>) -> Result<PlaceholderState, String> {
-    let handle = state.autopilot_handle.lock().map_err(|e| e.to_string())?.take();
+    let handle = state
+        .autopilot_handle
+        .lock()
+        .map_err(|e| e.to_string())?
+        .take();
     if let Some(h) = handle {
         h.abort();
     }
