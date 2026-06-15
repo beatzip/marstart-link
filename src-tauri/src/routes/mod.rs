@@ -13,8 +13,8 @@ use parking_lot::RwLock;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::time::Instant;
 
 pub use crate::snapshot::Health as RouteHealth;

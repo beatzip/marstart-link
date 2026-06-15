@@ -5,7 +5,7 @@ mod imp {
     use crate::wireguard_config::*;
     use std::mem::size_of;
     use std::net::IpAddr;
-    use windows::Win32::Networking::WinSock::{AF_INET, AF_INET6, IN6_ADDR, IN_ADDR, IN_ADDR_0};
+    use windows::Win32::Networking::WinSock::{AF_INET, AF_INET6, IN_ADDR, IN_ADDR_0, IN6_ADDR};
 
     /// Serialises ParsedConfig into the binary blob for WireGuardSetConfiguration.
     /// Layout: WireguardInterface | WireguardPeer₁ | AllowedIp₁₁ … | WireguardPeer₂ | …

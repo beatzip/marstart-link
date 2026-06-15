@@ -5,11 +5,13 @@ commands.allow = [
   "connect",
   "disconnect",
   "get_status",
+  "get_connection_info",
 
   # Monitoring (A, B)
   "monitor_start",
   "monitor_stop",
   "monitor_get_snapshot",
+  "monitor_get_state",
   "monitor_set_targets",
 
   # QoS (C)
@@ -32,6 +34,7 @@ commands.allow = [
   "routes_select_manual",
   "routes_get_state",
   "routes_set_policy",
+  "route_snapshot",
 
   # Load balancing (F)
   "lb_register_flow",
