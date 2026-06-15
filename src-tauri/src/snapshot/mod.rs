@@ -11,8 +11,8 @@ use chrono::Utc;
 use parking_lot::{Mutex, RwLock};
 use serde::Serialize;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 use tokio::task::JoinHandle;
@@ -174,21 +174,22 @@ impl RouteSnapshotEngine {
     }
 
     fn compute_snapshot(&self) -> Arc<Snapshot> {
-        let ids: Vec<String> = self.state.read().targets.keys().cloned().collect();
-        let mut new_targets: HashMap<String, TrackedTarget> = HashMap::with_capacity(ids.len());
+        // TOCTOU fix: hold write lock across entire compute to prevent race
+        // with set_targets. First, capture data we need from other sources.
+        let selected = self.selected.read().clone();
+        
+        let mut g = self.state.write();
+        let ids: Vec<String> = g.targets.keys().cloned().collect();
         let mut routes: Vec<RouteSnapshot> = Vec::with_capacity(ids.len());
+        
         for id in &ids {
             let agg = self.metrics.aggregated(id);
             let (score, health_now) = match &agg {
                 Some(a) => (compute_score(a), derive_health(a)),
                 None => (f32::INFINITY, Health::Unknown),
             };
-            let prev = self
-                .state
-                .read()
-                .targets
-                .get(id)
-                .map(|t| (t.health, t.streak));
+            // Get prev health/streak while holding write lock (safe from race)
+            let prev = g.targets.get(id).map(|t| (t.health, t.streak));
             // Hysteresis: require HEALTH_HYSTERESIS_STREAK consecutive readings before switching
             let (health, streak) = match prev {
                 Some((h, _s)) if h == health_now => (h, 0),
@@ -202,7 +203,8 @@ impl RouteSnapshotEngine {
                 }
                 None => (health_now, 0),
             };
-            new_targets.insert(id.clone(), TrackedTarget { health, streak });
+            g.targets.insert(id.clone(), TrackedTarget { health, streak });
+            
             let (latest, avg, jitter, loss, stab, samples) = match &agg {
                 Some(a) => (
                     a.latest_rtt_ms,
@@ -226,13 +228,10 @@ impl RouteSnapshotEngine {
                 samples,
             });
         }
-        *self.state.write() = EngineState {
-            targets: new_targets,
-        };
         routes.sort_by(|a, b| a.route_id.cmp(&b.route_id));
         Arc::new(Snapshot {
             routes,
-            selected: self.selected.read().clone(),
+            selected,
             timestamp_ms: Utc::now().timestamp_millis(),
         })
     }
@@ -241,10 +240,25 @@ impl RouteSnapshotEngine {
         let Some(app) = self.app.lock().clone() else {
             return;
         };
+        // Always emit the full route state tick.
         let _ = app.emit(EV_ROUTE_STATE, snap);
+
         let cur = snap.selected.clone();
-        if self.last_emitted_selected.read().clone() != cur {
-            *self.last_emitted_selected.write() = cur.clone();
+        // Atomic check-then-update under a single write lock.
+        // Previously used read().clone() followed by a separate write(), leaving a window where two
+        // concurrent callers could both observe a change and both emit EV_ROUTE_CHANGED.
+        // Now: acquire write lock once, compare, update, release — then emit outside the lock to
+        // avoid re-entrancy issues with Tauri's event bus.
+        let changed = {
+            let mut last = self.last_emitted_selected.write();
+            if *last != cur {
+                *last = cur.clone();
+                true
+            } else {
+                false
+            }
+        };
+        if changed {
             let _ = app.emit(EV_ROUTE_CHANGED, &cur);
         }
     }

@@ -14,8 +14,8 @@ use chrono::Utc;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashSet, VecDeque};
-use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use sysinfo::{ProcessesToUpdate, System};
 
 const SCAN_THROTTLE_MS: i64 = 1000;
@@ -67,6 +67,7 @@ struct DetectorState {
     bursts: VecDeque<(u16, usize, i64)>,
     cached_matches: Vec<String>,
     last_signal: GameSignal,
+    sys: System,
 }
 
 pub struct GameDetector {
@@ -83,6 +84,7 @@ impl GameDetector {
                 bursts: VecDeque::new(),
                 cached_matches: Vec::new(),
                 last_signal: GameSignal::idle(0),
+                sys: System::new(),
             }),
             last_scan_ms: AtomicI64::new(0),
             scan_count: AtomicU64::new(0),
@@ -137,13 +139,15 @@ impl GameDetector {
         }
         self.last_scan_ms.store(now, Ordering::Relaxed);
         self.scan_count.fetch_add(1, Ordering::Relaxed);
-        let mut sys = System::new();
-        sys.refresh_processes(ProcessesToUpdate::All, true);
-        let names: Vec<String> = sys
-            .processes()
-            .values()
-            .map(|p| p.name().to_string_lossy().to_lowercase())
-            .collect();
+        let names: Vec<String> = {
+            let mut g = self.state.write();
+            g.sys.refresh_processes(ProcessesToUpdate::All, true);
+            g.sys
+                .processes()
+                .values()
+                .map(|p| p.name().to_string_lossy().to_lowercase())
+                .collect()
+        };
         let matched = self.match_process_names(&names);
         self.state.write().cached_matches = matched.clone();
         matched

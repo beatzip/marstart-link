@@ -66,7 +66,7 @@ pub async fn tcp_connect_probe(addr: SocketAddr, timeout: Duration) -> ProbeResu
 #[cfg(target_os = "windows")]
 fn icmp_echo_v4(ip: Ipv4Addr, timeout: Duration) -> ProbeResult {
     use windows::Win32::NetworkManagement::IpHelper::{
-        IcmpCloseHandle, IcmpCreateFile, IcmpSendEcho, ICMP_ECHO_REPLY,
+        ICMP_ECHO_REPLY, IcmpCloseHandle, IcmpCreateFile, IcmpSendEcho,
     };
 
     unsafe {

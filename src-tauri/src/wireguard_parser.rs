@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 use crate::wireguard_config::{ParsedAllowedIp, ParsedConfig, ParsedPeer, WIREGUARD_KEY_LENGTH};
-use base64::{engine::general_purpose, Engine as _};
+use base64::{Engine as _, engine::general_purpose};
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 
 pub fn parse_wireguard_config(text: &str) -> Result<ParsedConfig, String> {
@@ -168,7 +168,7 @@ pub fn validate_config(config: &ParsedConfig) -> Result<(), String> {
         (None, _) | (_, None) => {
             return Err(
                 "Поле Address в [Interface] обязательно. Пример: Address = 10.0.0.2/32".into(),
-            )
+            );
         }
         (Some(ip), Some(prefix)) => {
             let max = if ip.is_ipv4() { 32u8 } else { 128u8 };

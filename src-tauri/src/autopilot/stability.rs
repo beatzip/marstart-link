@@ -97,11 +97,7 @@ impl StabilityHistory {
                 .map(|(x, (y, _))| (x - x_mean) * (y - mean))
                 .sum();
             let den: f32 = xs.iter().map(|x| (x - x_mean).powi(2)).sum();
-            if den > 0.0 {
-                (num / den).abs()
-            } else {
-                0.0
-            }
+            if den > 0.0 { (num / den).abs() } else { 0.0 }
         } else {
             0.0
         };

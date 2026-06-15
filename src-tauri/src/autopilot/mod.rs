@@ -15,12 +15,13 @@ use policy::{FsmState, PolicyContext, PolicyGate, PolicyVerdict, Verdict};
 use serde::Serialize;
 use stability::{StabilityHistory, StabilitySample};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 #[allow(unused_imports)]
 pub use policy::FsmState as AutopilotFsmState;
+pub use AutopilotIntent;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum AutopilotIntent {
