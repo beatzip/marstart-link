@@ -21,7 +21,6 @@ use std::time::Instant;
 
 #[allow(unused_imports)]
 pub use policy::FsmState as AutopilotFsmState;
-pub use AutopilotIntent;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum AutopilotIntent {
