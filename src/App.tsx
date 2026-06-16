@@ -96,14 +96,15 @@ function App() {
         api.gameState(),
       ]);
     if (statusR.status === 'fulfilled') setStatus(statusR.value);
-    if (metricsR.status === 'fulfilled') setMetrics(metricsR.value);
+    const metrics = metricsR.status === 'fulfilled' ? metricsR.value : [];
+    setMetrics(metrics);
     if (routesR.status === 'fulfilled') setRouteEval(routesR.value);
     if (routeStateR.status === 'fulfilled') setRouteState(routeStateR.value);
     if (profilesR.status === 'fulfilled') setProfiles(profilesR.value);
     if (gameR.status === 'fulfilled') setGame(gameR.value);
     setHistory((current) => {
       const updated = { ...current };
-      for (const item of nextMetrics) {
+      for (const item of metrics) {
         const series = updated[item.target_id] ? [...updated[item.target_id]] : [];
         series.push({
           rtt: item.latest_rtt_ms,
