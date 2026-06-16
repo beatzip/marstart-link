@@ -175,20 +175,20 @@ export const api = {
     const unlisten = listen<AutopilotDecision>('autopilot:action', (event) => {
       callback(event.payload);
     });
-    return () => { unlisten.then((f) => f()); };
+    return () => { unlisten.then((f) => f()).catch(() => {}); };
   },
   onMonitorTick: (callback: (tick: MonitorTick) => void) => {
     if (!isTauri()) return () => {};
     const unlisten = listen<MonitorTick>('monitor:tick', (event) => {
       callback(event.payload);
     });
-    return () => { unlisten.then((f) => f()); };
+    return () => { unlisten.then((f) => f()).catch(() => {}); };
   },
   onRouteChanged: (callback: (routeId: string | null) => void) => {
     if (!isTauri()) return () => {};
     const unlisten = listen<string | null>('routes:changed', (event) => {
       callback(event.payload);
     });
-    return () => { unlisten.then((f) => f()); };
+    return () => { unlisten.then((f) => f()).catch(() => {}); };
   },
 };
