@@ -86,8 +86,8 @@ function App() {
   );
 
   async function refresh() {
-    const [nextStatus, nextMetrics, nextRoutes, nextRouteState, nextProfiles, nextGame] =
-      await Promise.all([
+    const [statusR, metricsR, routesR, routeStateR, profilesR, gameR] =
+      await Promise.allSettled([
         api.status(),
         api.metrics(),
         api.routes(),
@@ -95,12 +95,12 @@ function App() {
         api.gameProfiles(),
         api.gameState(),
       ]);
-    setStatus(nextStatus);
-    setMetrics(nextMetrics);
-    setRouteEval(nextRoutes);
-    setRouteState(nextRouteState);
-    setProfiles(nextProfiles);
-    setGame(nextGame);
+    if (statusR.status === 'fulfilled') setStatus(statusR.value);
+    if (metricsR.status === 'fulfilled') setMetrics(metricsR.value);
+    if (routesR.status === 'fulfilled') setRouteEval(routesR.value);
+    if (routeStateR.status === 'fulfilled') setRouteState(routeStateR.value);
+    if (profilesR.status === 'fulfilled') setProfiles(profilesR.value);
+    if (gameR.status === 'fulfilled') setGame(gameR.value);
     setHistory((current) => {
       const updated = { ...current };
       for (const item of nextMetrics) {
