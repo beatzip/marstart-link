@@ -37,6 +37,31 @@ use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::task::JoinHandle;
 
+fn install_panic_hook() {
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let thread = std::thread::current();
+        let thread_name = thread.name().unwrap_or("<unnamed>");
+        let payload = info
+            .payload()
+            .downcast_ref::<&str>()
+            .map(|s| s.to_string())
+            .or_else(|| {
+                info.payload()
+                    .downcast_ref::<String>()
+                    .map(|s| s.clone())
+            })
+            .unwrap_or_else(|| "Box<dyn Any>".to_string());
+        let location = info
+            .location()
+            .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
+            .unwrap_or_else(|| "<unknown>".to_string());
+        let backtrace = std::backtrace::Backtrace::force_capture();
+        eprintln!("[PANIC] thread={thread_name} payload={payload} location={location}\n{backtrace}");
+        default_hook(info);
+    }));
+}
+
 #[derive(Clone)]
 struct AppState {
     tunnel: Arc<Mutex<Option<wireguard::WireGuardTunnel>>>,
@@ -465,6 +490,19 @@ fn multihop_get_state() -> PlaceholderState {
 }
 
 fn main() {
+    install_panic_hook();
+
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
+        .with_target(false)
+        .with_ansi(false)
+        .init();
+
+    tracing::info!("MARSTART LINK starting");
+
     let metrics = MetricsStore::new();
     let monitor = MonitorService::new(metrics.clone());
     let snapshot = RouteSnapshotEngine::new(metrics.clone());
@@ -494,15 +532,13 @@ fn main() {
         registry,
     };
 
-    tauri::Builder::default()
+    match tauri::Builder::default()
         .manage(state)
         .setup(|app| {
-            // RouteSnapshotEngine::start() must be called with an AppHandle so it can emit
-            // EV_ROUTE_STATE / EV_ROUTE_CHANGED events from its background loop.
-            // Without this call the loop never runs: routes_list, autopilot and lb all read
-            // `snapshot.current()` which stays permanently at the empty initial value.
+            tracing::info!("Tauri setup called");
             let snapshot = Arc::clone(&app.state::<AppState>().snapshot);
             snapshot.start(app.handle().clone());
+            tracing::info!("Snapshot engine started");
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -545,5 +581,12 @@ fn main() {
             route_snapshot
         ])
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+    {
+        Ok(_) => tracing::info!("MARSTART LINK exited normally"),
+        Err(e) => {
+            tracing::error!("Failed to start Tauri: {e}");
+            eprintln!("Failed to start MARSTART LINK: {e}");
+            std::process::exit(1);
+        }
+    }
 }
