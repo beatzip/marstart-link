@@ -55,7 +55,7 @@ fn install_panic_hook() {
         let backtrace = std::backtrace::Backtrace::force_capture();
         eprintln!(
             "[PANIC] thread={thread_name} payload={payload} location={location}\n{backtrace}"
-        );    
+        );
         default_hook(info);
     }));
 }
