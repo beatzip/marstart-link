@@ -46,16 +46,18 @@ fn install_panic_hook() {
             .payload()
             .downcast_ref::<&str>()
             .map(|s| s.to_string())
-            .or_else(|| info.payload().downcast_ref::<String>().cloned())
+            .or_else(|| {
+                info.payload()
+                    .downcast_ref::<String>()
+                    .map(|s| s.clone())
+            })
             .unwrap_or_else(|| "Box<dyn Any>".to_string());
         let location = info
             .location()
             .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
             .unwrap_or_else(|| "<unknown>".to_string());
         let backtrace = std::backtrace::Backtrace::force_capture();
-        eprintln!(
-            "[PANIC] thread={thread_name} payload={payload} location={location}\n{backtrace}"
-        );
+        eprintln!("[PANIC] thread={thread_name} payload={payload} location={location}\n{backtrace}");
         default_hook(info);
     }));
 }
