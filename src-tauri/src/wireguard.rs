@@ -19,8 +19,9 @@ use windows::Win32::Foundation::{FreeLibrary, BOOL, HANDLE, HMODULE};
 use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
 
 #[cfg(target_os = "windows")]
+// ИСПРАВЛЕНО: Правильная сигнатура WireGuardCreateAdapter
 type WireGuardCreateAdapterFunc =
-    unsafe extern "system" fn(flags: u32, adapter_name: PCWSTR, tunnel_name: PCWSTR) -> HANDLE;
+    unsafe extern "system" fn(adapter_name: PCWSTR, tunnel_name: PCWSTR, reserved: *const std::ffi::c_void) -> HANDLE;
 
 #[cfg(target_os = "windows")]
 type WireGuardSetConfigurationFunc = unsafe extern "system" fn(
@@ -37,7 +38,8 @@ type WireGuardGetConfigurationFunc = unsafe extern "system" fn(
 ) -> BOOL;
 
 #[cfg(target_os = "windows")]
-type WireGuardDeleteAdapterFunc = unsafe extern "system" fn(adapter: HANDLE, adapter_name: PCWSTR);
+// ИСПРАВЛЕНО: Правильная сигнатура WireGuardDeleteAdapter (только HANDLE)
+type WireGuardDeleteAdapterFunc = unsafe extern "system" fn(adapter: HANDLE);
 
 fn get_dll_path(dll_name: &str) -> PathBuf {
     let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("."));
@@ -144,13 +146,13 @@ impl WireGuardTunnel {
                 unsafe {
                     std::mem::transmute::<
                         unsafe extern "system" fn() -> isize,
-                        unsafe extern "system" fn(u32, PCWSTR, PCWSTR) -> HANDLE,
+                        WireGuardCreateAdapterFunc,
                     >(create_proc)
                 },
                 unsafe {
                     std::mem::transmute::<
                         unsafe extern "system" fn() -> isize,
-                        unsafe extern "system" fn(HANDLE, PCWSTR),
+                        WireGuardDeleteAdapterFunc,
                     >(delete_proc)
                 },
                 unsafe {
@@ -222,7 +224,9 @@ impl WireGuardTunnel {
     fn connect_impl(&mut self) -> Result<(), String> {
         let tunnel_wide = wide_str(&self.adapter_name);
         let tunnel_name = PCWSTR(tunnel_wide.as_ptr());
-        let handle = unsafe { (self.fn_create)(0, tunnel_name, tunnel_name) };
+        
+        // ИСПРАВЛЕНО: Передаем имя адаптера, имя туннеля и null для reserved
+        let handle = unsafe { (self.fn_create)(tunnel_name, tunnel_name, std::ptr::null()) };
 
         if handle.0 == 0 {
             return Err("failed to create WireGuard adapter".to_string());
@@ -232,9 +236,7 @@ impl WireGuardTunnel {
 
         let config_blob = serialize_config(&self.config)
             .map_err(|e| format!("failed to serialize config: {e}"))?;
-        // WireGuard-NT ABI: WireGuardSetConfiguration returns BOOL (non-zero = success, 0 = failure).
-        // Previously typed as NTSTATUS which inverted the check: a successful call (BOOL TRUE = 1)
-        // was treated as NTSTATUS error, causing connect() to always abort on Windows.
+        
         let ok = unsafe {
             (self.fn_set_cfg)(
                 handle,
@@ -324,9 +326,9 @@ impl WireGuardTunnel {
             return Ok(());
         };
 
-        let tunnel_wide = wide_str(&self.adapter_name);
+        // ИСПРАВЛЕНО: Передаем только handle
         unsafe {
-            (self.fn_delete)(handle, PCWSTR(tunnel_wide.as_ptr()));
+            (self.fn_delete)(handle);
             let _ = windows::Win32::Foundation::CloseHandle(handle);
         }
         Ok(())
@@ -343,7 +345,6 @@ impl WireGuardTunnel {
         }
 
         let mut buffer = vec![0u8; buf_size as usize];
-        // WireGuard-NT ABI: WireGuardGetConfiguration returns BOOL.
         let ok = unsafe { (self.fn_get_cfg)(handle, buffer.as_mut_ptr() as *mut _, &mut buf_size) };
         if !ok.as_bool() {
             return Ok((0, 0, 0));
@@ -376,6 +377,9 @@ fn wide_path(value: &std::path::Path) -> Vec<u16> {
 #[cfg(target_os = "windows")]
 impl Drop for WireGuardTunnel {
     fn drop(&mut self) {
+        // ИСПРАВЛЕНО: Гарантированно удаляем адаптер перед уничтожением объекта
+        let _ = self.delete_adapter_handle();
+        
         // Free the DLL when tunnel is dropped
         unsafe {
             let _ = FreeLibrary(self.wg_lib);
