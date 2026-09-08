@@ -355,7 +355,7 @@ impl WireGuardTunnel {
     fn read_peer_stats(&self, handle: HANDLE) -> Result<(u64, u64, u64), String> {
         let mut buf_size: u32 = 0;
         unsafe {
-            (self.fn_get_cfg)(handle, std::ptr::null_mut(), &mut buf_size);
+            let _ = (self.fn_get_cfg)(handle, std::ptr::null_mut(), &mut buf_size);
         }
         if buf_size == 0 {
             return Ok((0, 0, 0));
