@@ -247,7 +247,7 @@ impl WireGuardTunnel {
             (self.fn_create)(tunnel_name, PCWSTR(tunnel_type.as_ptr()), std::ptr::null())
         };
 
-        if handle.0 == 0 {
+        if handle.0.is_null() {
             return Err("failed to create WireGuard adapter".to_string());
         }
 
