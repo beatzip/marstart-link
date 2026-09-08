@@ -39,7 +39,7 @@ The application requires Administrator privileges to function. This is strictly 
 
 ### 2. DLL Loading & Supply Chain Protection
 The application dynamically loads `wireguard.dll` and `wintun.dll` via `libloading`.
-- **Source Verification:** These DLLs are fetched from official sources (WireGuard LLC / Wintun) and verified via SHA-256 checksums during the build process (`build.rs`).
+- **Source Verification:** Release CI fetches these DLLs from official sources (WireGuard LLC / Wintun), verifies the published SHA-256 checksums before extraction, and only then copies them into the bundle.
 - **DLL Hijacking Prevention:** The DLLs are bundled within the Tauri application resources. The Rust backend resolves the DLL paths using secure, absolute paths derived from the Tauri `AppHandle` environment, preventing DLL Hijacking / Preloading attacks from the current working directory.
 
 ### 3. Tauri & IPC Security

@@ -74,8 +74,16 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path "src-tauri/sdk" | Out-Null
           Invoke-WebRequest -Uri "https://download.wireguard.com/wireguard-nt/wireguard-nt-1.1.zip" -OutFile "src-tauri/sdk/wireguard-nt.zip"
+          $wgHash = (Get-FileHash "src-tauri/sdk/wireguard-nt.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($wgHash -ne "dceb30a9bc4be48cce0f74160fc88a585a2c2627366e8f846fc6658f9038dace") {
+            throw "WireGuard-NT archive checksum mismatch: $wgHash"
+          }
           Expand-Archive -Path "src-tauri/sdk/wireguard-nt.zip" -DestinationPath "src-tauri/sdk/wireguard-nt" -Force
           Invoke-WebRequest -Uri "https://www.wintun.net/builds/wintun-0.14.1.zip" -OutFile "src-tauri/sdk/wintun.zip"
+          $wintunHash = (Get-FileHash "src-tauri/sdk/wintun.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($wintunHash -ne "07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51") {
+            throw "Wintun archive checksum mismatch: $wintunHash"
+          }
           Expand-Archive -Path "src-tauri/sdk/wintun.zip" -DestinationPath "src-tauri/sdk/wintun" -Force
 
       - name: Copy DLLs to resources
