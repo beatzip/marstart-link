@@ -19,33 +19,42 @@ use windows::Win32::Foundation::{FreeLibrary, BOOL, HANDLE, HMODULE};
 use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
 
 #[cfg(target_os = "windows")]
-// ИСПРАВЛЕНО: Правильная сигнатура WireGuardCreateAdapter
-type WireGuardCreateAdapterFunc =
-    unsafe extern "system" fn(adapter_name: PCWSTR, tunnel_name: PCWSTR, reserved: *const std::ffi::c_void) -> HANDLE;
+type WireGuardAdapterHandle = HANDLE;
+
+#[cfg(target_os = "windows")]
+type WireGuardCreateAdapterFunc = unsafe extern "system" fn(
+    adapter_name: PCWSTR,
+    tunnel_type: PCWSTR,
+    requested_guid: *const std::ffi::c_void,
+) -> WireGuardAdapterHandle;
+
+#[cfg(target_os = "windows")]
+type WireGuardCloseAdapterFunc = unsafe extern "system" fn(adapter: WireGuardAdapterHandle);
 
 #[cfg(target_os = "windows")]
 type WireGuardSetConfigurationFunc = unsafe extern "system" fn(
-    adapter: HANDLE,
+    adapter: WireGuardAdapterHandle,
     config_bytes: *const std::ffi::c_void,
     config_size: u32,
 ) -> BOOL;
 
 #[cfg(target_os = "windows")]
 type WireGuardGetConfigurationFunc = unsafe extern "system" fn(
-    adapter: HANDLE,
+    adapter: WireGuardAdapterHandle,
     config_bytes: *mut std::ffi::c_void,
     config_size: *mut u32,
 ) -> BOOL;
 
-#[cfg(target_os = "windows")]
-// ИСПРАВЛЕНО: Правильная сигнатура WireGuardDeleteAdapter (только HANDLE)
-type WireGuardDeleteAdapterFunc = unsafe extern "system" fn(adapter: HANDLE);
-
 fn get_dll_path(dll_name: &str) -> PathBuf {
     let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("."));
-    exe.parent()
-        .map(|p| p.join(dll_name))
-        .unwrap_or_else(|| PathBuf::from(dll_name))
+    let exe_dir = exe.parent().unwrap_or_else(|| std::path::Path::new("."));
+    let bundled = exe_dir.join("resources").join(dll_name);
+    if bundled.exists() {
+        bundled
+    } else {
+        // Development fallback: allow a DLL next to the executable.
+        exe_dir.join(dll_name)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -95,18 +104,26 @@ pub struct WireGuardTunnel {
     counters: Arc<TunnelCounters>,
     connect_time: Mutex<Option<Instant>>,
     #[cfg(target_os = "windows")]
-    adapter_handle: Mutex<Option<HANDLE>>,
+    adapter_handle: Mutex<Option<WireGuardAdapterHandle>>,
     #[cfg(target_os = "windows")]
     wg_lib: HMODULE,
     #[cfg(target_os = "windows")]
     fn_create: WireGuardCreateAdapterFunc,
     #[cfg(target_os = "windows")]
-    fn_delete: WireGuardDeleteAdapterFunc,
+    fn_close: WireGuardCloseAdapterFunc,
     #[cfg(target_os = "windows")]
     fn_set_cfg: WireGuardSetConfigurationFunc,
     #[cfg(target_os = "windows")]
     fn_get_cfg: WireGuardGetConfigurationFunc,
 }
+
+#[cfg(target_os = "windows")]
+// The adapter and DLL handles are opaque process-local resources. Access is
+// serialized by AppState::tunnel and tunnel_op before Tauri command calls.
+unsafe impl Send for WireGuardTunnel {}
+
+#[cfg(target_os = "windows")]
+unsafe impl Sync for WireGuardTunnel {}
 
 impl WireGuardTunnel {
     pub fn new(profile: &Profile) -> Result<Self, String> {
@@ -120,7 +137,7 @@ impl WireGuardTunnel {
         validate_config(&config)?;
 
         #[cfg(target_os = "windows")]
-        let (wg_lib, fn_create, fn_delete, fn_set_cfg, fn_get_cfg) = {
+        let (wg_lib, fn_create, fn_close, fn_set_cfg, fn_get_cfg) = {
             let dll_path = get_dll_path("wireguard.dll");
             let dll_path_wide = wide_path(&dll_path);
             let lib = unsafe { LoadLibraryW(PCWSTR(dll_path_wide.as_ptr())) }
@@ -129,9 +146,9 @@ impl WireGuardTunnel {
                 GetProcAddress(lib, s!("WireGuardCreateAdapter"))
                     .ok_or_else(|| "WireGuardCreateAdapter not found".to_string())?
             };
-            let delete_proc = unsafe {
-                GetProcAddress(lib, s!("WireGuardDeleteAdapter"))
-                    .ok_or_else(|| "WireGuardDeleteAdapter not found".to_string())?
+            let close_proc = unsafe {
+                GetProcAddress(lib, s!("WireGuardCloseAdapter"))
+                    .ok_or_else(|| "WireGuardCloseAdapter not found".to_string())?
             };
             let set_cfg_proc = unsafe {
                 GetProcAddress(lib, s!("WireGuardSetConfiguration"))
@@ -152,8 +169,8 @@ impl WireGuardTunnel {
                 unsafe {
                     std::mem::transmute::<
                         unsafe extern "system" fn() -> isize,
-                        WireGuardDeleteAdapterFunc,
-                    >(delete_proc)
+                        WireGuardCloseAdapterFunc,
+                    >(close_proc)
                 },
                 unsafe {
                     std::mem::transmute::<
@@ -183,7 +200,7 @@ impl WireGuardTunnel {
             #[cfg(target_os = "windows")]
             fn_create,
             #[cfg(target_os = "windows")]
-            fn_delete,
+            fn_close,
             #[cfg(target_os = "windows")]
             fn_set_cfg,
             #[cfg(target_os = "windows")]
@@ -224,11 +241,13 @@ impl WireGuardTunnel {
     fn connect_impl(&mut self) -> Result<(), String> {
         let tunnel_wide = wide_str(&self.adapter_name);
         let tunnel_name = PCWSTR(tunnel_wide.as_ptr());
-        
-        // ИСПРАВЛЕНО: Передаем имя адаптера, имя туннеля и null для reserved
-        let handle = unsafe { (self.fn_create)(tunnel_name, tunnel_name, std::ptr::null()) };
 
-        if handle.0 == 0 {
+        let tunnel_type = wide_str("MARSTART LINK");
+        let handle = unsafe {
+            (self.fn_create)(tunnel_name, PCWSTR(tunnel_type.as_ptr()), std::ptr::null())
+        };
+
+        if handle.0.is_null() {
             return Err("failed to create WireGuard adapter".to_string());
         }
 
@@ -236,7 +255,7 @@ impl WireGuardTunnel {
 
         let config_blob = serialize_config(&self.config)
             .map_err(|e| format!("failed to serialize config: {e}"))?;
-        
+
         let ok = unsafe {
             (self.fn_set_cfg)(
                 handle,
@@ -326,10 +345,8 @@ impl WireGuardTunnel {
             return Ok(());
         };
 
-        // ИСПРАВЛЕНО: Передаем только handle
         unsafe {
-            (self.fn_delete)(handle);
-            let _ = windows::Win32::Foundation::CloseHandle(handle);
+            (self.fn_close)(handle);
         }
         Ok(())
     }
@@ -338,7 +355,7 @@ impl WireGuardTunnel {
     fn read_peer_stats(&self, handle: HANDLE) -> Result<(u64, u64, u64), String> {
         let mut buf_size: u32 = 0;
         unsafe {
-            (self.fn_get_cfg)(handle, std::ptr::null_mut(), &mut buf_size);
+            let _ = (self.fn_get_cfg)(handle, std::ptr::null_mut(), &mut buf_size);
         }
         if buf_size == 0 {
             return Ok((0, 0, 0));
@@ -379,7 +396,7 @@ impl Drop for WireGuardTunnel {
     fn drop(&mut self) {
         // ИСПРАВЛЕНО: Гарантированно удаляем адаптер перед уничтожением объекта
         let _ = self.delete_adapter_handle();
-        
+
         // Free the DLL when tunnel is dropped
         unsafe {
             let _ = FreeLibrary(self.wg_lib);

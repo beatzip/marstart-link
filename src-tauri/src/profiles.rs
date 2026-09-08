@@ -39,22 +39,32 @@ fn default_weight() -> f32 {
 }
 
 pub fn load_profile(id: &str) -> Result<Profile, String> {
-    // Реальная загрузка из файлового хранилища — отдельная задача (см. roadmap).
-    // Build absolute config path relative to executable location
-    let wg_config_path = (|| {
-        let exe_path =
-            std::env::current_exe().map_err(|e| format!("Failed to get exe path: {}", e))?;
-        let exe_dir = exe_path
-            .parent()
-            .map(|p| p.to_path_buf())
-            .ok_or_else(|| "Failed to get exe parent directory".to_string())?;
+    if id.is_empty() || id.contains('/') || id.contains('\\') || id.contains("..") {
+        return Err("invalid profile id".to_string());
+    }
+
+    let exe_path =
+        std::env::current_exe().map_err(|e| format!("failed to get executable path: {e}"))?;
+    let exe_dir = exe_path
+        .parent()
+        .ok_or_else(|| "failed to get executable directory".to_string())?;
+    let candidates = [
+        exe_dir.join("profiles").join(format!("{id}.conf")),
         exe_dir
+            .join("resources")
             .join("profiles")
-            .join(format!("{}.conf", id))
-            .into_os_string()
-            .into_string()
-            .map_err(|_| "Config path contains non-UTF8 characters".to_string())
-    })()?;
+            .join(format!("{id}.conf")),
+    ];
+    let config_path = candidates
+        .into_iter()
+        .find(|path| path.is_file())
+        .ok_or_else(|| {
+            format!("WireGuard profile '{id}' not found; expected profiles/{id}.conf")
+        })?;
+    let wg_config_path = config_path
+        .into_os_string()
+        .into_string()
+        .map_err(|_| "profile path contains non-UTF-8 characters".to_string())?;
 
     Ok(Profile {
         id: id.to_string(),
