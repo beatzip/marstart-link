@@ -117,6 +117,14 @@ pub struct WireGuardTunnel {
     fn_get_cfg: WireGuardGetConfigurationFunc,
 }
 
+#[cfg(target_os = "windows")]
+// The adapter and DLL handles are opaque process-local resources. Access is
+// serialized by AppState::tunnel and tunnel_op before Tauri command calls.
+unsafe impl Send for WireGuardTunnel {}
+
+#[cfg(target_os = "windows")]
+unsafe impl Sync for WireGuardTunnel {}
+
 impl WireGuardTunnel {
     pub fn new(profile: &Profile) -> Result<Self, String> {
         let config_path = profile
