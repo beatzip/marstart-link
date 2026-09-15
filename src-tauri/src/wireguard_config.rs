@@ -105,7 +105,8 @@ pub struct WireguardAllowedIp {
     pub address: WireguardIpAddress,    // +0   16b
     pub address_family: ADDRESS_FAMILY, // +16  2b
     pub cidr: u8,                       // +18  1b
-                                        // padding to 8 → total = 24 bytes
+    pub flags: WireguardAllowedIpFlag,  // +20  4b (1b padding at +19 for alignment)
+                                        // total = 24 bytes
 }
 
 // ============================================================================
@@ -194,6 +195,8 @@ mod abi_tests {
         assert_eq!(offset_of!(WireguardAllowedIp, address), 0);
         assert_eq!(offset_of!(WireguardAllowedIp, address_family), 16);
         assert_eq!(offset_of!(WireguardAllowedIp, cidr), 18);
+        // Flags at offset +20 after 1 byte padding (to align u32 to 4-byte boundary)
+        assert_eq!(offset_of!(WireguardAllowedIp, flags), 20);
         assert_eq!(size_of::<WireguardAllowedIp>(), 24);
     }
 

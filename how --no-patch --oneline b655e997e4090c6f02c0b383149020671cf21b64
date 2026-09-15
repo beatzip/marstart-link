@@ -1,0 +1,20 @@
+[33m203db1b[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m)[m Prepare v0.1.1 release
+[33m12ba6e8[m[33m ([m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m Merge pull request #2 from beatzip/fix/wireguard-nt-1.1-runtime
+[33meee7419[m[33m ([m[1;33mtag: [m[1;33mfix/wireguard-nt-1.1-runtime[m[33m, [m[1;31morigin/fix/wireguard-nt-1.1-runtime[m[33m)[m Handle WireGuard configuration size probe result
+[33m4d5f928[m Fix opaque adapter handle null check
+[33m5d1dac2[m Mark WireGuard FFI tunnel state as thread safe
+[33mb481f4b[m Fix WireGuard NT 1.1 runtime and release packaging
+[33mf311247[m[33m ([m[1;31morigin/codespace-super-duper-robot-x5gpv64jqvg6f666v[m[33m)[m Merge pull request #1 from beatzip/main
+[33ma5e006f[m Delete dist directory
+[33m0682274[m Update wireguard.rs
+[33m7cf978d[m Update Cargo.toml
+[33md84e257[m Update package.json
+[33mbcf78b6[m Update LivingMars.tsx
+[33m465af3e[m src/App.tsx:106 — nextMetrics was a dangling reference from a partial refactor. The refresh() function referenced an undefined variable, producing a ReferenceError at boot. This killed the React render tree immediately after mount — the WebView showed a blank window for 1–3 seconds then closed.
+[33maaaeac2[m fix : The src-tauri.manifest has requireAdministrator — this triggers a UAC prompt on every launch. If the user clicks "No", the app doesn't start (this is expected behavior, not a bug).
+[33m11cad14[m fixed cargo clippy
+[33m4419c8c[m fix cargo fmt
+[33ma320cde[m fixed Rust
+[33m607d1b6[m Fixed: 1. Missing base: './' → Vite generates /assets/... absolute paths 2. CSP blocks asset: protocol → Even with relative paths, Tauri v2's asset: protocol was blocked by CSP 3. Result: Frontend JS never loads → WebView shows blank → window closes
+[33maaef75e[m fixed cargo fmt
+[33m5ffd58a[m fixed clippy

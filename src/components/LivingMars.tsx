@@ -69,7 +69,8 @@ const ORBITS = [
 // ── Visual parameters per network state ─────────────────────────────────
 // br=brightness  ra=routeAlpha  ps=particleSpeed  ai=atmoIntensity
 // oa=orbitAlpha  ml=ML monogram phase  warn=warning flavour
-const PARAMS = {
+type VisualParams = { br: number; ra: number; ps: number; ai: number; oa: number; ml: number; warn: string | null };
+const PARAMS: Record<string, VisualParams> = {
   offline:    { br:0.35, ra:0.00, ps:0.00, ai:0.20, oa:0.10, ml:0.00, warn:null      }, // Brightness increased from 0.09
   connecting: { br:0.28, ra:0.18, ps:0.14, ai:0.28, oa:0.20, ml:0.04, warn:null      },
   connected:  { br:0.68, ra:0.68, ps:1.00, ai:0.66, oa:0.56, ml:0.10, warn:null      },
@@ -79,9 +80,9 @@ const PARAMS = {
 };
 
 // ── Pure helpers ─────────────────────────────────────────────────────────
-const lerp = (a, b, t) => a + (b - a) * t;
+const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
-function bzPt(route, t) {
+function bzPt(route: typeof ROUTES[number], t: number) {
   const { p0, cp1, cp2, p1 } = route;
   const mt = 1 - t;
   return [
@@ -91,7 +92,7 @@ function bzPt(route, t) {
 }
 
 // ── Draw: Mars sphere (called each frame) ────────────────────────────────
-function drawSphere(ctx, time, br, mlPhase) {
+function drawSphere(ctx: CanvasRenderingContext2D, time: number, br: number, mlPhase: number) {
   const rot = time * 0.0016;         // full revolution ≈ 65 min — subtle life
   const ca = Math.cos(rot), sa = Math.sin(rot);
 
@@ -174,7 +175,7 @@ function drawSphere(ctx, time, br, mlPhase) {
 }
 
 // ── Draw: Orbital ring half (front or back of planet) ────────────────────
-function drawOrbitHalf(ctx, orb, oa, nodeAngle, front) {
+function drawOrbitHalf(ctx: CanvasRenderingContext2D, orb: typeof ORBITS[number], oa: number, nodeAngle: number, front: boolean) {
   if (oa < 0.01) return;
   ctx.save(); ctx.translate(CX, CY);
 
@@ -214,7 +215,7 @@ function drawOrbitHalf(ctx, orb, oa, nodeAngle, front) {
 }
 
 // ── Draw: Connection energy beam (planet bottom → canvas edge) ───────────
-function drawBeam(ctx, alpha) {
+function drawBeam(ctx: CanvasRenderingContext2D, alpha: number) {
   if (alpha < 0.02) return;
   const x = CX, y1 = CY + R + 2, y2 = H - 2;
 
@@ -249,13 +250,13 @@ function drawBeam(ctx, alpha) {
 //  LIVING MARS COMPONENT
 // ══════════════════════════════════════════════════════════════════════════
 export function LivingMars({ state = 'offline' }: { state?: string }) {
-  const canvasRef = useRef(null);
-  const rafRef    = useRef(null);
-  const prevNow   = useRef(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const rafRef    = useRef<number | null>(null);
+  const prevNow   = useRef<number | null>(null);
   const stateRef  = useRef(state);
 
   // Lerped visual params (mutated in RAF — no re-render)
-  const cur  = useRef({ ...PARAMS.offline, ml: 0 });
+  const cur  = useRef<VisualParams>({ ...PARAMS.offline, ml: 0 });
   // Warning oscillator
   const warn = useRef({ phase: 0, intensity: 0 });
   // Beam phase — animated internally when connecting
@@ -277,21 +278,26 @@ export function LivingMars({ state = 'offline' }: { state?: string }) {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext('2d');
+    const rawCtx = canvas.getContext('2d');
+    if (!rawCtx) return;
+    const ctx: CanvasRenderingContext2D = rawCtx;
 
     // Very subtle scanline texture (depth without CRT feel)
     const scan = document.createElement('canvas');
     scan.width = 2; scan.height = 4;
     const sc = scan.getContext('2d');
+    if (!sc) return;
     sc.fillStyle = 'rgba(0,0,0,0.028)'; sc.fillRect(0, 0, 2, 1);
-    const scanPat = ctx.createPattern(scan, 'repeat');
+    const rawScanPat = ctx.createPattern(scan, 'repeat');
+    if (!rawScanPat) return;
+    const scanPat: CanvasPattern = rawScanPat;
 
-    function frame(now) {
+    function frame(now: number) {
       const dt = prevNow.current !== null ? Math.min(now - prevNow.current, 28) : 16;
       prevNow.current = now;
       const time = now * 0.001;   // seconds
 
-      const s   = stateRef.current;
+      const s = stateRef.current as keyof typeof PARAMS;
       const tgt = PARAMS[s] ?? PARAMS.offline;
       const c   = cur.current;
       const w   = warn.current;

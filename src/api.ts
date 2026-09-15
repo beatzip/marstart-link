@@ -10,8 +10,10 @@ import type {
   MonitorState,
   MonitorTick,
   MonitorTarget,
+  PathDescriptor,
   RouteEvaluation,
   RouteState,
+  SwitchResult,
   TunnelStatus,
 } from './types';
 
@@ -30,6 +32,44 @@ let mockProfiles: GameProfile[] = [
     max_packet_size: 200,
   },
 ];
+
+let mockPaths: PathDescriptor[] = [
+  {
+    id: 'path-a',
+    profile_name: 'default',
+    tunnel_state: 'Up',
+    interface_luid: 1,
+    interface_index: 10,
+    active: true,
+    health: 'Healthy',
+    destination: '203.0.113.10',
+    prefix_length: 32,
+    generation: 0,
+  },
+  {
+    id: 'path-b',
+    profile_name: 'default',
+    tunnel_state: 'Up',
+    interface_luid: 2,
+    interface_index: 20,
+    active: false,
+    health: 'Healthy',
+    destination: '203.0.113.10',
+    prefix_length: 32,
+    generation: 0,
+  },
+];
+
+function mockSwitchResult(): SwitchResult {
+  return {
+    from_path: null,
+    to_path: null,
+    datapath_applied: false,
+    routes_added: [],
+    routes_removed: [],
+    error: null,
+  };
+}
 
 function mockMetrics(): AggregatedMetrics[] {
   const now = Date.now() / 1000;
@@ -150,7 +190,7 @@ export const api = {
   gameState: () =>
     isTauri()
       ? invoke<GameSignal>('game_get_state')
-      : Promise.resolve({
+      : Promise.resolve<GameSignal>({
           detected: false,
           game_id: null,
           game_name: null,
@@ -190,5 +230,17 @@ export const api = {
       callback(event.payload);
     });
     return () => { unlisten.then((f) => f()).catch(() => {}); };
+  },
+  failover: async (oldPath: string, newPath: string) => {
+    if (isTauri()) return invoke<SwitchResult>('routes_failover', { oldPath, newPath });
+    return mockSwitchResult();
+  },
+  reconcile: async () => {
+    if (isTauri()) return invoke<string[]>('paths_reconcile');
+    return [];
+  },
+  paths: async () => {
+    if (isTauri()) return invoke<PathDescriptor[]>('paths_get');
+    return mockPaths;
   },
 };

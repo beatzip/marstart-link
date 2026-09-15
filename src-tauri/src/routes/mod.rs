@@ -7,6 +7,7 @@
 //! source of truth); routes do not re-derive it.
 
 use crate::metrics::MetricsStore;
+use crate::path_manager::PathManager;
 use crate::profiles::EndpointSpec;
 use crate::snapshot::RouteSnapshotEngine;
 use parking_lot::RwLock;
@@ -14,7 +15,7 @@ use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 pub use crate::snapshot::Health as RouteHealth;
@@ -81,6 +82,10 @@ pub struct RouteManager {
     started: Instant,
     cooldown_ms: AtomicU64,
     switch_margin: AtomicU32,
+    /// Optional PathManager for SD-WAN datapath integration.
+    /// When set, `commit()` delegates route activation to PathManager,
+    /// which installs/updates Windows routing table entries.
+    paths: Mutex<Option<Arc<PathManager>>>,
 }
 
 impl RouteManager {
@@ -95,7 +100,14 @@ impl RouteManager {
             started: Instant::now(),
             cooldown_ms: AtomicU64::new(DEFAULT_COOLDOWN_MS),
             switch_margin: AtomicU32::new(DEFAULT_SWITCH_MARGIN.to_bits()),
+            paths: Mutex::new(None),
         })
+    }
+
+    /// Inject a PathManager for SD-WAN datapath integration.
+    /// After this call, `commit()` will delegate to `PathManager::activate_path()`.
+    pub fn set_paths(&self, pm: Arc<PathManager>) {
+        *self.paths.lock().unwrap() = Some(pm);
     }
 
     pub fn set_candidates(&self, specs: Vec<EndpointSpec>) {
@@ -290,8 +302,16 @@ impl RouteManager {
         }
         self.last_switch_ms
             .store(self.elapsed_ms(), Ordering::Relaxed);
-        self.snapshot.set_selected(new_id);
+        self.snapshot.set_selected(new_id.clone());
         self.snapshot.refresh_now();
+
+        // SD-WAN datapath integration: delegate to PathManager to install
+        // the Windows route table entry with the correct metric.
+        if let Some(pm) = self.paths.lock().unwrap().as_ref() {
+            if let Some(route_id) = &new_id {
+                let _ = pm.activate_path(route_id);
+            }
+        }
     }
 
     pub fn state(&self) -> RouteState {
@@ -494,11 +514,93 @@ mod tests {
         let _ = snap.refresh_now();
         mgr.set_cooldown_ms(10_000);
         mgr.commit(Some("a".into()));
+        // Clear b's history so re-seeding reflects fresh, improved metrics
+        // rather than averaging old 80ms samples with new 10ms ones.
+        metrics.clear_target("b");
         seed_good(&metrics, "b", 10.0);
         let _ = snap.refresh_now();
         let ev = mgr.evaluate();
         assert_eq!(ev.recommended.as_deref(), Some("b"));
         assert_eq!(ev.reason, EvalReason::CooldownBlocked);
+    }
+
+    #[test]
+    fn can_switch_true_immediately_with_zero_cooldown() {
+        let (mgr, _metrics, _snap) = make(&[("a", 1.0), ("b", 1.0)]);
+        mgr.set_cooldown_ms(0);
+        mgr.commit(Some("a".into()));
+        // With cooldown=0, can_switch should be true right after commit.
+        assert!(mgr.can_switch());
+    }
+
+    #[test]
+    fn can_switch_false_during_cooldown() {
+        let (mgr, _metrics, _snap) = make(&[("a", 1.0), ("b", 1.0)]);
+        mgr.set_cooldown_ms(10_000);
+        mgr.commit(Some("a".into()));
+        assert!(!mgr.can_switch());
+    }
+
+    #[test]
+    fn switch_margin_blocks_small_improvement() {
+        let (mgr, metrics, snap) = make(&[("a", 1.0), ("b", 1.0)]);
+        set_targets_and_pump(&snap, &["a", "b"]);
+        seed_good(&metrics, "a", 30.0);
+        seed_good(&metrics, "b", 28.0);
+        let _ = snap.refresh_now();
+        mgr.set_cooldown_ms(0);
+        mgr.set_switch_margin(0.20);
+        mgr.commit(Some("a".into()));
+        let ev = mgr.evaluate();
+        // b is better (28 < 30), but improvement is tiny (2/30 = 0.067 < 0.20).
+        assert_eq!(ev.recommended.as_deref(), Some("b"));
+        assert_eq!(ev.reason, EvalReason::NoChange);
+    }
+
+    #[test]
+    fn switch_margin_allows_large_improvement() {
+        let (mgr, metrics, snap) = make(&[("a", 1.0), ("b", 1.0)]);
+        set_targets_and_pump(&snap, &["a", "b"]);
+        seed_good(&metrics, "a", 100.0);
+        seed_good(&metrics, "b", 20.0);
+        let _ = snap.refresh_now();
+        mgr.set_cooldown_ms(0);
+        mgr.set_switch_margin(0.20);
+        mgr.commit(Some("a".into()));
+        let ev = mgr.evaluate();
+        // b is much better: improvement = (100-20)/100 = 0.80 >= 0.20.
+        assert_eq!(ev.recommended.as_deref(), Some("b"));
+        assert_eq!(ev.reason, EvalReason::Improvement);
+    }
+
+    #[test]
+    fn current_degrades_switch_recommended() {
+        let (mgr, metrics, snap) = make(&[("a", 1.0), ("b", 1.0)]);
+        set_targets_and_pump(&snap, &["a", "b"]);
+        seed_good(&metrics, "a", 20.0);
+        seed_good(&metrics, "b", 80.0);
+        let _ = snap.refresh_now();
+        mgr.set_cooldown_ms(0);
+        mgr.commit(Some("a".into()));
+        // Degrade "a" to Degraded health: clear old samples, push 10 at 130ms
+        // (RTT > RTT_DEGRADED_MS(120) → Degraded, loss_ratio=0).
+        metrics.clear_target("a");
+        for _ in 0..10 {
+            push_ok(&metrics, "a", 130.0);
+        }
+        // Hysteresis requires HEALTH_HYSTERESIS_STREAK=3 consecutive reads.
+        // evaluate() also calls refresh_now(), so we need 4 total refreshes.
+        for _ in 0..4 {
+            let _ = snap.refresh_now();
+        }
+        let ev = mgr.evaluate();
+        assert!(ev
+            .scores
+            .iter()
+            .any(|s| s.id == "a" && s.health == RouteHealth::Degraded));
+        // "b" (80ms, Good) is better than "a" (130ms, Degraded).
+        assert_ne!(ev.recommended.as_deref(), Some("a"));
+        assert_eq!(ev.recommended.as_deref(), Some("b"));
     }
 
     #[test]

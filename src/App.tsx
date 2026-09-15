@@ -6,8 +6,10 @@ import type {
   EndpointSpec,
   GameProfile,
   GameSignal,
+  PathDescriptor,
   RouteEvaluation,
   RouteState,
+  SwitchResult,
   TunnelStatus,
 } from './types';
 import './App.css';
@@ -71,6 +73,7 @@ function App() {
   const [game, setGame] = useState<GameSignal | null>(null);
   const [autopilot, setAutopilot] = useState<AutopilotDecision | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [paths, setPaths] = useState<PathDescriptor[]>([]);
   const [draftProfile, setDraftProfile] = useState<GameProfile>({
     id: 'custom-game',
     name: 'Custom Game',
@@ -86,7 +89,7 @@ function App() {
   );
 
   async function refresh() {
-    const [statusR, metricsR, routesR, routeStateR, profilesR, gameR] =
+    const [statusR, metricsR, routesR, routeStateR, profilesR, gameR, pathsR] =
       await Promise.allSettled([
         api.status(),
         api.metrics(),
@@ -94,6 +97,7 @@ function App() {
         api.routeState(),
         api.gameProfiles(),
         api.gameState(),
+        api.paths(),
       ]);
     if (statusR.status === 'fulfilled') setStatus(statusR.value);
     const metrics = metricsR.status === 'fulfilled' ? metricsR.value : [];
@@ -102,6 +106,7 @@ function App() {
     if (routeStateR.status === 'fulfilled') setRouteState(routeStateR.value);
     if (profilesR.status === 'fulfilled') setProfiles(profilesR.value);
     if (gameR.status === 'fulfilled') setGame(gameR.value);
+    if (pathsR.status === 'fulfilled') setPaths(pathsR.value);
     setHistory((current) => {
       const updated = { ...current };
       for (const item of metrics) {
@@ -228,6 +233,36 @@ function App() {
     }
   }
 
+  async function reconcile() {
+    setError(null);
+    try {
+      await api.reconcile();
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function failover() {
+    setError(null);
+    try {
+      const activePath = paths.find((p) => p.active);
+      const standbyPath = paths.find((p) => !p.active && p.tunnel_state === 'Up');
+
+      if (!activePath || !standbyPath) {
+        setError('Cannot failover: need active and standby paths');
+        return;
+      }
+
+      const result = await api.failover(activePath.id, standbyPath.id);
+      if (result.error) {
+        setError(result.error);
+      }
+      await refresh();
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
   return (
     <main className="shell">
       <section className="topbar">
@@ -281,6 +316,19 @@ function App() {
             <small style={{ display: 'block' }}>FSM: {autopilot.fsm_state}</small>
           </div>
         )}
+        <button
+          onClick={reconcile}
+          disabled={status.status === 'Disconnected'}
+          style={{ marginLeft: 'auto' }}
+        >
+          Reconcile
+        </button>
+        <button
+          onClick={failover}
+          disabled={status.status === 'Disconnected'}
+        >
+          Failover
+        </button>
       </section>
 
       <section className="grid">
@@ -336,6 +384,29 @@ function App() {
               <Sparkline points={history[item.target_id] ?? []} metric="rtt" />
             </div>
           ))}
+        </div>
+
+        <div className="panel">
+          <div className="panel-title">
+            <h2>Paths</h2>
+            <span>{paths.length} paths</span>
+          </div>
+          <div className="route-list">
+            {paths.map((path) => (
+              <div className="route-row" key={path.id}>
+                <span>
+                  <strong>{path.id}</strong>
+                  <small>
+                    {path.tunnel_state} / LUID 0x{path.interface_luid.toString(16)} /{' '}
+                    {path.destination ?? '-'}
+                  </small>
+                </span>
+                <span>
+                  {path.active ? '★ active' : '☆ standby'} {path.health}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
 
         <div className="panel">

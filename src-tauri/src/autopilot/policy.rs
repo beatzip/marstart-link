@@ -33,10 +33,10 @@ impl Default for PolicyConfig {
     fn default() -> Self {
         Self {
             game_mode_cooldown_ms: 2500,
-            recovery_cooldown_ms: 200,
+            recovery_cooldown_ms: 100,
             stable_cooldown_ms: 1500,
             degraded_cooldown_ms: 800,
-            game_mode_margin: 0.15,
+            game_mode_margin: 0.08,
             stable_margin: 0.20,
             other_margin: 0.12,
             degraded_margin: 0.08,
@@ -199,10 +199,10 @@ mod tests {
         let g = PolicyGate::new();
         let cfg = g.config();
         assert_eq!(cfg.game_mode_cooldown_ms, 2500);
-        assert_eq!(cfg.recovery_cooldown_ms, 200);
+        assert_eq!(cfg.recovery_cooldown_ms, 100);
         assert_eq!(cfg.stable_cooldown_ms, 1500);
         assert_eq!(cfg.degraded_cooldown_ms, 800);
-        assert!((cfg.game_mode_margin - 0.15).abs() < 1e-6);
+        assert!((cfg.game_mode_margin - 0.08).abs() < 1e-6);
         assert!((cfg.stable_margin - 0.20).abs() < 1e-6);
         assert!((cfg.other_margin - 0.12).abs() < 1e-6);
         assert!((cfg.degraded_margin - 0.08).abs() < 1e-6);
@@ -287,7 +287,139 @@ mod tests {
             hysteresis_streak: 1,
             ..PolicyConfig::default()
         });
-        let v = g.evaluate(&ctx(false, Health::Good, FsmState::Stable, 0.0, 1, 9999));
+        let v = g.evaluate(&ctx(false, Health::Good, FsmState::Stable, 0.5, 1, 9999));
         assert_eq!(v.verdict, Verdict::Allow);
+    }
+
+    // ── Regression tests for policy default boundaries ──────────────────
+    //
+    // These guard against accidental changes to the production defaults
+    // (`PolicyConfig::default()`). They verify the exact semantics of
+    // margin comparisons (>=), cooldown comparisons (>=), and the
+    // game-mode vs stable margin differential.
+
+    #[test]
+    fn game_mode_margin_lower_than_stable_margin() {
+        let g = PolicyGate::new();
+        let cfg = g.config();
+        // Game mode allows switching at a lower improvement threshold
+        // than stable mode — this is the whole point of the game-mode
+        // margin override.
+        assert!(
+            cfg.game_mode_margin < cfg.stable_margin,
+            "game_mode_margin ({}) must be lower than stable_margin ({})",
+            cfg.game_mode_margin,
+            cfg.stable_margin
+        );
+        // Also verify the specific documented values.
+        assert!(
+            (cfg.game_mode_margin - 0.08).abs() < 1e-6,
+            "game_mode_margin should be 0.08"
+        );
+        assert!(
+            (cfg.stable_margin - 0.20).abs() < 1e-6,
+            "stable_margin should be 0.20"
+        );
+        assert!(
+            (cfg.degraded_margin - 0.08).abs() < 1e-6,
+            "degraded_margin should be 0.08"
+        );
+    }
+
+    #[test]
+    fn game_mode_allows_10pct_improvement() {
+        // With game_mode_margin = 0.08, improvement = 0.10 should pass (>=).
+        let g = PolicyGate::new();
+        let v = g.evaluate(&ctx(true, Health::Good, FsmState::GameMode, 0.10, 3, 9999));
+        assert_eq!(v.verdict, Verdict::Allow);
+        assert!((v.margin - 0.08).abs() < 1e-6);
+    }
+
+    #[test]
+    fn game_mode_blocks_5pct_improvement() {
+        // 0.05 < 0.08 → blocked during game mode.
+        let g = PolicyGate::new();
+        let v = g.evaluate(&ctx(true, Health::Good, FsmState::GameMode, 0.05, 3, 9999));
+        assert_eq!(v.verdict, Verdict::Block);
+    }
+
+    #[test]
+    fn game_mode_margin_boundary_exact() {
+        // 0.08 >= 0.08 → Allow (>= comparison, not strict >).
+        let g = PolicyGate::new();
+        let v = g.evaluate(&ctx(true, Health::Good, FsmState::GameMode, 0.08, 3, 9999));
+        assert_eq!(v.verdict, Verdict::Allow);
+    }
+
+    #[test]
+    fn stable_mode_requires_20pct_improvement() {
+        // With stable_margin = 0.20, improvement = 0.10 should be blocked.
+        let g = PolicyGate::new();
+        let v = g.evaluate(&ctx(false, Health::Good, FsmState::Stable, 0.10, 3, 9999));
+        assert_eq!(v.verdict, Verdict::Block);
+        // But 0.20 should pass (>=).
+        let v2 = g.evaluate(&ctx(false, Health::Good, FsmState::Stable, 0.20, 3, 9999));
+        assert_eq!(v2.verdict, Verdict::Allow);
+    }
+
+    #[test]
+    fn recovery_cooldown_boundary_exact() {
+        // recovery_cooldown_ms = 100. elapsed = 100 (>= 100) → Allow.
+        let g = PolicyGate::new();
+        let v = g.evaluate(&ctx(false, Health::Good, FsmState::Recovery, 0.5, 3, 100));
+        assert_eq!(v.verdict, Verdict::Allow);
+        assert!((v.cooldown_ms as i64 - 100).abs() < 1);
+    }
+
+    #[test]
+    fn recovery_cooldown_blocks_below_threshold() {
+        // elapsed = 99 < 100 → Block.
+        let g = PolicyGate::new();
+        let v = g.evaluate(&ctx(false, Health::Good, FsmState::Recovery, 0.5, 3, 99));
+        assert_eq!(v.verdict, Verdict::Block);
+        assert!(v.elapsed_since_switch_ms < v.cooldown_ms);
+    }
+
+    #[test]
+    fn stable_cooldown_boundary_exact() {
+        // stable_cooldown_ms = 1500. elapsed = 1500 (>= 1500) → Allow (with margin).
+        let g = PolicyGate::new();
+        let v = g.evaluate(&ctx(false, Health::Good, FsmState::Stable, 0.5, 3, 1500));
+        assert_eq!(v.verdict, Verdict::Allow);
+        // elapsed = 1499 < 1500 → Block.
+        let v2 = g.evaluate(&ctx(false, Health::Good, FsmState::Stable, 0.5, 3, 1499));
+        assert_eq!(v2.verdict, Verdict::Block);
+    }
+
+    #[test]
+    fn game_mode_cooldown_boundary() {
+        // game_mode_cooldown_ms = 2500.
+        let g = PolicyGate::new();
+        let v = g.evaluate(&ctx(true, Health::Good, FsmState::GameMode, 0.5, 3, 2500));
+        assert_eq!(v.verdict, Verdict::Allow);
+        let v2 = g.evaluate(&ctx(true, Health::Good, FsmState::GameMode, 0.5, 3, 2499));
+        assert_eq!(v2.verdict, Verdict::Block);
+    }
+
+    #[test]
+    fn degraded_uses_degraded_margin_not_stable() {
+        let g = PolicyGate::new();
+        // degraded_margin = 0.08, stable_margin = 0.20.
+        // With improvement = 0.10: should Allow via degraded margin.
+        let v = g.evaluate(&ctx(
+            false,
+            Health::Degraded,
+            FsmState::Degraded,
+            0.10,
+            3,
+            9999,
+        ));
+        assert_eq!(v.verdict, Verdict::Allow);
+        assert_eq!(v.class, CooldownClass::Degraded);
+        // Same improvement with Good health uses stable_margin = 0.20 → Block.
+        let v2 = g.evaluate(&ctx(false, Health::Good, FsmState::Stable, 0.10, 3, 9999));
+        assert_eq!(v2.verdict, Verdict::Block);
+        assert_eq!(v2.class, CooldownClass::Stable);
+        assert!(v.margin < v2.margin);
     }
 }

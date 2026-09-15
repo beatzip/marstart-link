@@ -102,6 +102,7 @@ mod imp {
                     address,
                     address_family,
                     cidr: aip.cidr,
+                    flags: 0, // WIREGUARD_ALLOWED_IP_REMOVE not set: add this allowed IP
                 };
                 write_struct(&wg_ip, &mut blob, &mut off);
             }

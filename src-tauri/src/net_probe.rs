@@ -122,8 +122,10 @@ mod tests {
 
     #[tokio::test]
     async fn tcp_probe_unreachable_returns_lost() {
-        // RFC 5737 TEST-NET-1, guaranteed non-routable
-        let addr: SocketAddr = "192.0.2.1:65000".parse().unwrap();
+        // RFC 5737 TEST-NET-1 is supposed to be non-routable, but some
+        // sandboxed/corporate networks accept the connection anyway. Use
+        // 127.0.0.1:1 (tcpmux) which reliably returns ECONNREFUSED.
+        let addr: SocketAddr = "127.0.0.1:1".parse().unwrap();
         let r = tcp_connect_probe(addr, Duration::from_millis(50)).await;
         assert!(!r.is_ok());
     }

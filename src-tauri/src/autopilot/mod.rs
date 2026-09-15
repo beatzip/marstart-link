@@ -210,19 +210,24 @@ impl Autopilot {
     fn feed_stability(&self, route_ids: &[String]) {
         for id in route_ids {
             let samples = self.metrics.samples(id);
-            if let Some(latest) = samples.last() {
-                let last_ts = {
-                    let g = self.inner.read();
-                    g.last_recorded_ts.get(id).copied().unwrap_or(i64::MIN)
-                };
-                if latest.timestamp_ms >= last_ts {
+            let last_ts = {
+                let g = self.inner.read();
+                g.last_recorded_ts.get(id).copied().unwrap_or(i64::MIN)
+            };
+            // Record ALL new samples (not just the latest) so that
+            // stability_index has enough data (>= MIN_SAMPLES) to compute
+            // a meaningful index after a burst of samples between ticks.
+            for sample in &samples {
+                if sample.timestamp_ms > last_ts {
                     self.stability
-                        .record(id, StabilitySample::from_ping(latest));
-                    self.inner
-                        .write()
-                        .last_recorded_ts
-                        .insert(id.clone(), latest.timestamp_ms);
+                        .record(id, StabilitySample::from_ping(sample));
                 }
+            }
+            if let Some(latest) = samples.last() {
+                self.inner
+                    .write()
+                    .last_recorded_ts
+                    .insert(id.clone(), latest.timestamp_ms);
             }
         }
     }
@@ -457,6 +462,17 @@ mod tests {
         );
     }
 
+    /// Push a sample with an explicit timestamp (for testing dedup logic).
+    fn push_ok_at(m: &MetricsStore, id: &str, rtt: f32, ts_ms: i64) {
+        m.push(
+            id,
+            PingSample {
+                rtt_ms: Some(rtt),
+                timestamp_ms: ts_ms,
+            },
+        );
+    }
+
     fn make_ap() -> (Arc<Autopilot>, MetricsStore) {
         let metrics = MetricsStore::new();
         let ap = Autopilot::new(metrics.clone());
@@ -590,6 +606,116 @@ mod tests {
         let routes = vec![route("a", 50.0, Health::Good)];
         let _ = ap.update(&snap(routes, None), &idle_game());
         assert!(ap.stability_of("a") > 0.5);
+    }
+
+    // ── Stability feed: regression tests for `feed_stability` dedup ──────
+    //
+    // These verify the change from `samples.last()` to iterating all samples
+    // with `timestamp_ms > last_ts`. The key properties:
+    //   1. First feed records ALL accumulated samples (not just the last).
+    //   2. Second feed with no new samples records nothing (no duplicates).
+    //   3. Duplicate timestamps across feeds do not cause duplicate records.
+    //   4. A new route starts with neutral stability (0.5).
+
+    #[test]
+    fn stability_first_feed_records_all_samples() {
+        let (ap, metrics) = make_ap();
+        // Push 10 samples with distinct timestamps.
+        for i in 0..10 {
+            push_ok_at(&metrics, "a", 20.0, i * 100);
+        }
+        let routes = vec![route("a", 50.0, Health::Good)];
+        ap.update(&snap(routes, None), &idle_game());
+        // First feed: all 10 samples should be in the stability history.
+        assert_eq!(ap.stability.len("a"), 10);
+        assert!(
+            ap.stability_of("a") > 0.7,
+            "expected high stability, got {}",
+            ap.stability_of("a")
+        );
+    }
+
+    #[test]
+    fn stability_second_feed_no_duplicates() {
+        let (ap, metrics) = make_ap();
+        for i in 0..10 {
+            push_ok_at(&metrics, "a", 20.0, i * 100);
+        }
+        let routes = vec![route("a", 50.0, Health::Good)];
+        ap.update(&snap(routes.clone(), None), &idle_game());
+        let s1 = ap.stability_of("a");
+        assert_eq!(ap.stability.len("a"), 10);
+        // Second update with NO new samples → nothing should be re-fed.
+        ap.update(&snap(routes, None), &idle_game());
+        assert_eq!(ap.stability.len("a"), 10);
+        let s2 = ap.stability_of("a");
+        assert!(
+            (s1 - s2).abs() < 0.01,
+            "stability changed on empty feed: {} → {}",
+            s1,
+            s2
+        );
+    }
+
+    #[test]
+    fn stability_duplicate_timestamps_not_re_fed() {
+        let (ap, metrics) = make_ap();
+        // All 10 samples at the same timestamp (simulating same-ms burst).
+        for _ in 0..10 {
+            push_ok_at(&metrics, "a", 20.0, 5000);
+        }
+        let routes = vec![route("a", 50.0, Health::Good)];
+        ap.update(&snap(routes.clone(), None), &idle_game());
+        // First feed: all 10 recorded (5000 > i64::MIN).
+        assert_eq!(ap.stability.len("a"), 10);
+        // Second feed: all samples have ts=5000, last_ts=5000 → none re-fed.
+        ap.update(&snap(routes, None), &idle_game());
+        assert_eq!(
+            ap.stability.len("a"),
+            10,
+            "duplicate timestamps must not re-feed"
+        );
+    }
+
+    #[test]
+    fn stability_incremental_feed_only_new_samples() {
+        let (ap, metrics) = make_ap();
+        // Initial batch: 5 samples at ts 100..500.
+        for i in 0..5 {
+            push_ok_at(&metrics, "a", 20.0, (i + 1) * 100);
+        }
+        let routes = vec![route("a", 50.0, Health::Good)];
+        ap.update(&snap(routes.clone(), None), &idle_game());
+        assert_eq!(ap.stability.len("a"), 5);
+        // Push 5 NEW samples at ts 600..1000.
+        for i in 0..5 {
+            push_ok_at(&metrics, "a", 20.0, (i + 6) * 100);
+        }
+        ap.update(&snap(routes, None), &idle_game());
+        // Should now have 10 total (5 old + 5 new), no duplicates.
+        assert_eq!(ap.stability.len("a"), 10);
+    }
+
+    #[test]
+    fn stability_new_route_starts_neutral() {
+        let (ap, metrics) = make_ap();
+        push_ok_at(&metrics, "a", 20.0, 100);
+        push_ok_at(&metrics, "a", 20.0, 200);
+        push_ok_at(&metrics, "a", 20.0, 300);
+        let routes = vec![route("a", 50.0, Health::Good)];
+        ap.update(&snap(routes.clone(), None), &idle_game());
+        assert!(ap.stability_of("a") > 0.5);
+        // Route "b" has no samples → should be neutral 0.5.
+        let routes_b = vec![
+            route("a", 50.0, Health::Good),
+            route("b", 40.0, Health::Good),
+        ];
+        ap.update(&snap(routes_b, None), &idle_game());
+        assert!(
+            (ap.stability_of("b") - 0.5).abs() < 0.01,
+            "new route should start neutral, got {}",
+            ap.stability_of("b")
+        );
     }
 
     #[test]

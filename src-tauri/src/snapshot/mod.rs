@@ -190,8 +190,11 @@ impl RouteSnapshotEngine {
             };
             // Get prev health/streak while holding write lock (safe from race)
             let prev = g.targets.get(id).map(|t| (t.health, t.streak));
-            // Hysteresis: require HEALTH_HYSTERESIS_STREAK consecutive readings before switching
+            // Hysteresis: require HEALTH_HYSTERESIS_STREAK consecutive readings before switching.
+            // Unknown means "no prior data" — the first real reading should propagate
+            // immediately, not be held back by the hysteresis counter.
             let (health, streak) = match prev {
+                Some((Health::Unknown, _)) => (health_now, 0),
                 Some((h, _s)) if h == health_now => (h, 0),
                 Some((h, s)) => {
                     let ns = s + 1;
@@ -397,6 +400,104 @@ mod tests {
         }
         let s = eng.refresh_now();
         assert_eq!(s.health_of("x"), Health::Bad);
+    }
+
+    // ── Regression tests for Unknown → real-health transition (immediate, not hysteresis-gated) ──
+    //
+    // These tests verify the change in `compute_snapshot()` where `Some((Health::Unknown, _))`
+    // now produces an immediate health transition (line 197), rather than being held back
+    // by the `HEALTH_HYSTERESIS_STREAK` counter. The rationale: `Unknown` means "no prior
+    // data" — the first real reading should propagate immediately so the autopilot can
+    // make routing decisions on fresh metrics without waiting 3 refresh cycles.
+
+    #[test]
+    fn unknown_to_good_is_immediate() {
+        let m = MetricsStore::new();
+        let eng = RouteSnapshotEngine::new(m.clone());
+        eng.set_targets(vec!["x".to_string()]);
+        // First refresh: no samples → Health::Unknown stored in TrackedTarget.
+        let s0 = eng.refresh_now();
+        assert_eq!(s0.health_of("x"), Health::Unknown);
+        // Push good samples.
+        for _ in 0..10 {
+            push_ok(&m, "x", 20.0);
+        }
+        // Second refresh: Unknown → Good should be immediate (1 cycle, not 3).
+        let s1 = eng.refresh_now();
+        assert_eq!(s1.health_of("x"), Health::Good);
+    }
+
+    #[test]
+    fn unknown_to_degraded_is_immediate() {
+        let m = MetricsStore::new();
+        let eng = RouteSnapshotEngine::new(m.clone());
+        eng.set_targets(vec!["x".to_string()]);
+        let s0 = eng.refresh_now();
+        assert_eq!(s0.health_of("x"), Health::Unknown);
+        // Push samples that yield Degraded: RTT > RTT_DEGRADED_MS (120).
+        for _ in 0..10 {
+            push_ok(&m, "x", 130.0);
+        }
+        let s1 = eng.refresh_now();
+        assert_eq!(s1.health_of("x"), Health::Degraded);
+    }
+
+    #[test]
+    fn unknown_to_bad_is_immediate() {
+        let m = MetricsStore::new();
+        let eng = RouteSnapshotEngine::new(m.clone());
+        eng.set_targets(vec!["x".to_string()]);
+        let s0 = eng.refresh_now();
+        assert_eq!(s0.health_of("x"), Health::Unknown);
+        // Push samples that yield Bad: loss_ratio > LOSS_BAD (0.10).
+        for _ in 0..10 {
+            push_lost(&m, "x");
+        }
+        let s1 = eng.refresh_now();
+        assert_eq!(s1.health_of("x"), Health::Bad);
+    }
+
+    #[test]
+    fn unknown_to_good_not_blocked_by_hysteresis() {
+        let m = MetricsStore::new();
+        let eng = RouteSnapshotEngine::new(m.clone());
+        eng.set_targets(vec!["x".to_string()]);
+        eng.refresh_now(); // establishes Unknown
+        for _ in 0..10 {
+            push_ok(&m, "x", 20.0);
+        }
+        // Exactly one refresh — hysteresis streak should NOT delay the transition.
+        let s1 = eng.refresh_now();
+        assert_eq!(s1.health_of("x"), Health::Good);
+        // And a second refresh should keep it Good (no oscillation).
+        let s2 = eng.refresh_now();
+        assert_eq!(s2.health_of("x"), Health::Good);
+    }
+
+    #[test]
+    fn real_health_transition_still_uses_hysteresis() {
+        let m = MetricsStore::new();
+        let eng = RouteSnapshotEngine::new(m.clone());
+        eng.set_targets(vec!["x".to_string()]);
+        for _ in 0..100 {
+            push_ok(&m, "x", 20.0);
+        }
+        let s1 = eng.refresh_now();
+        assert_eq!(s1.health_of("x"), Health::Good);
+        // Push 5 lost samples → Degraded (loss 5/105 = 0.047 > 0.03).
+        for _ in 0..5 {
+            push_lost(&m, "x");
+        }
+        // After 1 refresh, should still be Good (hysteresis not yet satisfied).
+        let s2 = eng.refresh_now();
+        assert_eq!(s2.health_of("x"), Health::Good);
+        // After 2 more refreshes...
+        let _ = eng.refresh_now();
+        let _ = eng.refresh_now();
+        // Still Good — only 3 refreshes total after the change, and streak=3 needed.
+        // The 4th consecutive degraded reading should flip.
+        let s5 = eng.refresh_now();
+        assert_eq!(s5.health_of("x"), Health::Degraded);
     }
 
     #[test]

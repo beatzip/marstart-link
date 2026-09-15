@@ -121,3 +121,29 @@ export interface MonitorState {
   interval_ms: number;
   targets: MonitorTarget[];
 }
+
+export type TunnelState = 'Up' | 'Down';
+
+export type PathHealth = 'Healthy' | 'Degraded' | 'Unhealthy';
+
+export interface PathDescriptor {
+  id: string;
+  profile_name: string;
+  tunnel_state: TunnelState;
+  interface_luid: number;
+  interface_index: number;
+  active: boolean;
+  health: PathHealth;
+  destination: string | null;
+  prefix_length: number;
+  generation: number;
+}
+
+export interface SwitchResult {
+  from_path: string | null;
+  to_path: string | null;
+  datapath_applied: boolean;
+  routes_added: string[];
+  routes_removed: string[];
+  error: string | null;
+}
