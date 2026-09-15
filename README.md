@@ -101,6 +101,19 @@
 - **Network core:** WireGuard
 - **Target platform:** Windows 10 / 11
 
+## Требования и ограничения
+
+Для работы MARSTART LINK требуются права **Administrator** (приложение помечено
+`requireAdministrator` в манифесте `src-tauri/src-tauri.manifest`), установленный
+драйвер **WireGuard-NT** (библиотека `wireguard.dll` берётся из `src-tauri/resources/`),
+а также активное WireGuard‑соединение.
+
+> **Ограничение:** полная проверка работы в реальном Windows‑окружении в текущей
+> среде сборки **не выполнена** — здесь нет прав администратора, тестовых
+> конфигураций WireGuard и активной WireGuard‑инфраструктуры.
+> **Реальный Windows runtime gate: ЗАБЛОКИРОВАН.** Принятая архитектура
+> (Option A) не изменена и намеренно не ослаблена из‑за этого.
+
 ## Сборка и запуск
 
 ### Установка зависимостей
@@ -226,6 +239,41 @@ That is not a problem. It is just the current stage of the project.
 - **Backend:** Rust, Tauri
 - **Network core:** WireGuard
 - **Target platform:** Windows 10 / 11
+
+## Requirements & runtime limitations
+
+Running MARSTART LINK requires **Administrator** privileges (the app is marked
+`requireAdministrator` in `src-tauri/src-tauri.manifest`), the **WireGuard-NT**
+driver (`wireguard.dll`, bundled under `src-tauri/resources/`), and an active
+WireGuard tunnel.
+
+> **Limitation:** a full end-to-end runtime validation on real Windows has
+> **not** been completed in the current build environment — it lacks Administrator
+> privileges, WireGuard test configurations/endpoints, and active WireGuard
+> runtime infrastructure.
+> **REAL WINDOWS RUNTIME GATE: BLOCKED.** The approved architecture (Option A)
+> is unchanged and intentionally not weakened because of this.
+
+### Release signing
+
+The Tauri production bundle is cryptographically signed. The signing key
+is referenced in CI via the GitHub Actions secret named
+**`TAURI_SIGNING_PRIVATE_KEY`** (base64-encoded contents of `tauri.key`).
+
+The `release.yml` workflow currently maps the older `TAURI_PRIVATE_KEY`
+env name; the `tauri-apps/tauri-action` automatically forwards
+`TAURI_PRIVATE_KEY` → `TAURI_SIGNING_PRIVATE_KEY`. After the CR-1 key
+rotation the owner must populate **`TAURI_SIGNING_PRIVATE_KEY`** with the
+new key contents. The new key was generated **without** a password; if
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD` is referenced in CI, set it to an
+empty string or remove it.
+
+> **Security:** `tauri.key` and `tauri.key.pub` are listed in `.gitignore`
+> and have been purged from all reachable Git history (post-GC verified).
+> The private key is never committed.
+
+**Current release version:** v0.1.1 (matches `package.json`, `Cargo.toml`,
+`tauri.conf.json`, and `Cargo.lock`).
 
 ## Development
 

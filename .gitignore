@@ -11,6 +11,9 @@ build/
 tauri.key
 **/tauri.key
 src-tauri/tauri.key
+tauri.key.pub
+**/tauri.key.pub
+src-tauri/tauri.key.pub
 
 # Downloaded WireGuard / Wintun SDK artifacts
 src-tauri/sdk/
@@ -21,6 +24,9 @@ src-tauri/resources/*.dll
 # Local tooling / build logs
 .tools/
 cargo-*.log
+
+# Auto-generated manifest embedding helper (created by build.rs)
+src-tauri/embed_manifest.bat
 
 # Keep icons in git (required for tauri build / CI)
 !src-tauri/icons/
