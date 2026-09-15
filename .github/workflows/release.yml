@@ -69,7 +69,7 @@ jobs:
             exit 1
           }
 
-      - name: Download SDKs (WireGuard + Wintun)
+      - name: Download WireGuard-NT SDK
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path "src-tauri/sdk" | Out-Null
@@ -79,42 +79,32 @@ jobs:
             throw "WireGuard-NT archive checksum mismatch: $wgHash"
           }
           Expand-Archive -Path "src-tauri/sdk/wireguard-nt.zip" -DestinationPath "src-tauri/sdk/wireguard-nt" -Force
-          Invoke-WebRequest -Uri "https://www.wintun.net/builds/wintun-0.14.1.zip" -OutFile "src-tauri/sdk/wintun.zip"
-          $wintunHash = (Get-FileHash "src-tauri/sdk/wintun.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($wintunHash -ne "07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51") {
-            throw "Wintun archive checksum mismatch: $wintunHash"
-          }
-          Expand-Archive -Path "src-tauri/sdk/wintun.zip" -DestinationPath "src-tauri/sdk/wintun" -Force
 
       - name: Copy DLLs to resources
         shell: pwsh
         run: |
           $wg = Get-ChildItem "src-tauri/sdk/wireguard-nt" -Recurse -Filter "wireguard.dll" | Select-Object -First 1
-          $wt = Get-ChildItem "src-tauri/sdk/wintun" -Recurse -Filter "wintun.dll" | Select-Object -First 1
           if (-not $wg) { Write-Error "wireguard.dll not found"; exit 1 }
-          if (-not $wt) { Write-Error "wintun.dll not found"; exit 1 }
           New-Item -ItemType Directory -Force -Path "src-tauri/resources" | Out-Null
           Copy-Item $wg.FullName -Destination "src-tauri/resources/wireguard.dll" -Force
-          Copy-Item $wt.FullName -Destination "src-tauri/resources/wintun.dll" -Force
-          Write-Host "DLLs copied to src-tauri/resources/"
+          Write-Host "wireguard.dll copied to src-tauri/resources/"
 
       - name: Verify bundled resources
         shell: pwsh
         run: |
-          foreach ($dll in @('wireguard.dll', 'wintun.dll')) {
-            $path = Join-Path 'src-tauri/resources' $dll
-            if (!(Test-Path $path)) {
-              Write-Error "Missing bundled resource: $path"
-              exit 1
-            }
-            $sizeKB = [math]::Round((Get-Item $path).Length / 1KB, 1)
-            Write-Host "${dll}: ${sizeKB} KB"
-            if ((Get-Item $path).Length -lt 100KB) {
-              Write-Error "${dll} is suspiciously small (${sizeKB} KB < 100 KB) — likely a stub or corrupt file"
-              exit 1
-            }
+          $dll = "wireguard.dll"
+          $path = Join-Path 'src-tauri/resources' $dll
+          if (!(Test-Path $path)) {
+            Write-Error "Missing bundled resource: $path"
+            exit 1
           }
-          Write-Host "All DLL size checks passed."
+          $sizeKB = [math]::Round((Get-Item $path).Length / 1KB, 1)
+          Write-Host "${dll}: ${sizeKB} KB"
+          if ((Get-Item $path).Length -lt 100KB) {
+            Write-Error "${dll} is suspiciously small (${sizeKB} KB < 100 KB) — likely a stub or corrupt file"
+            exit 1
+          }
+          Write-Host "Resource check passed."
 
       - name: Rust fmt check
         working-directory: src-tauri
@@ -161,3 +151,68 @@ jobs:
             }
           }
           Write-Host "Installer size check passed."
+
+      - name: Embed requireAdministrator manifest into release binary
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem "src-tauri/target/release" -Filter "marstart-link.exe" -Recurse | Select-Object -First 1
+          if (-not $exe) {
+            Write-Error "Release binary not found in src-tauri/target/release/"
+            exit 1
+          }
+          # Robustly locate mt.exe across any installed Windows SDK version.
+          # windows-latest may ship a newer SDK than the originally-pinned
+          # version, so globbing avoids a brittle hardcoded path. We pick the
+          # highest installed version and fail loudly if none is found.
+          $mt = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter "mt.exe" |
+            Where-Object { $_.FullName -like "*\x64\mt.exe" } |
+            Sort-Object { [Version]($_.Directory.Parent.Name) } -Descending |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $mt) {
+            Write-Error "mt.exe not found under Windows Kits\10\bin — install the Windows SDK (Desktop Build Tools) with the C++ build tools"
+            exit 1
+          }
+          Write-Host "Embedding manifest into: $($exe.FullName)"
+          & $mt -manifest "src-tauri/src-tauri.manifest" -outputresource:"$($exe.FullName);#1" -nologo
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "mt.exe failed to embed manifest"
+            exit 1
+          }
+          Write-Host "Manifest embedded successfully: requireAdministrator"
+
+      - name: Verify embedded manifest (requireAdministrator)
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem "src-tauri/target/release" -Filter "marstart-link.exe" -Recurse | Select-Object -First 1
+          if (-not $exe) {
+            Write-Error "Release binary not found"
+            exit 1
+          }
+          # Robustly locate mt.exe across any installed Windows SDK version.
+          $mt = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter "mt.exe" |
+            Where-Object { $_.FullName -like "*\x64\mt.exe" } |
+            Sort-Object { [Version]($_.Directory.Parent.Name) } -Descending |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $mt) {
+            Write-Error "mt.exe not found under Windows Kits\10\bin — install the Windows SDK (Desktop Build Tools) with the C++ build tools"
+            exit 1
+          }
+          $out = "$env:TEMP\marstart_manifest_check.xml"
+          & $mt -inputresource:"$($exe.FullName);#1" -out:"$out" -nologo
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Failed to extract manifest from binary"
+            exit 1
+          }
+          $content = Get-Content $out -Raw
+          if ($content -match 'requireAdministrator') {
+            Write-Host "PASS: Manifest contains requireAdministrator"
+          } else {
+            Write-Error "FAIL: Manifest does NOT contain requireAdministrator"
+            Write-Host $content
+            exit 1
+          }
+          Remove-Item $out -ErrorAction SilentlyContinue
+
+      - name: Run WireGuard tests
+        working-directory: src-tauri
+        run: cargo test --all-features --locked wireguard -- --test-threads=1
