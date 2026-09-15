@@ -166,7 +166,7 @@ impl PathManager {
         }
 
         // Set all paths to standby
-        for (_id, path) in inner.iter_mut() {
+        for path in inner.values_mut() {
             path.active = false;
         }
 
