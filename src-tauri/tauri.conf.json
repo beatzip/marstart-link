@@ -2,7 +2,7 @@
   "productName": "MARSTART LINK",
   "version": "0.1.1",
   "identifier": "com.marstartlink.app",
-  "mainBinaryName": "MARSTART LINK",
+  "mainBinaryName": "marstart-link",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
