@@ -214,5 +214,30 @@ jobs:
           Remove-Item $out -ErrorAction SilentlyContinue
 
       - name: Run WireGuard tests
+        shell: pwsh
         working-directory: src-tauri
-        run: cargo test --all-features --locked wireguard -- --test-threads=1
+        run: |
+          $src = "resources/wireguard.dll"
+          if (!(Test-Path $src)) {
+            Write-Error "Missing $src — Copy DLLs to resources must run first"
+            exit 1
+          }
+          # get_dll_path() uses current_exe() dir → for cargo test that is target/debug/deps/
+          $dirs = @(
+            "target/debug",
+            "target/debug/deps",
+            "target/release",
+            "target/release/deps"
+          )
+          foreach ($d in $dirs) {
+            New-Item -ItemType Directory -Force -Path $d | Out-Null
+            Copy-Item $src -Destination (Join-Path $d "wireguard.dll") -Force
+            Write-Host "Staged: $(Join-Path $d 'wireguard.dll') size=$((Get-Item (Join-Path $d 'wireguard.dll')).Length)"
+          }
+          # cargo may recreate deps; stage again right before test via a wrapper is overkill —
+          # but verify the critical path exists:
+          if (!(Test-Path "target/debug/deps/wireguard.dll")) {
+            Write-Error "Staging failed: target/debug/deps/wireguard.dll missing"
+            exit 1
+          }
+          cargo test --all-features --locked wireguard -- --test-threads=1
