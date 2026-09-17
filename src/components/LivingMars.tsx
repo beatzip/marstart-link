@@ -37,15 +37,17 @@ const STARS = Array.from({ length: 130 }, () => ({
 }));
 
 // ── Mars terrain features (normalised: centre=0, radius=1) ──────────────
+// rot orients elongated features so they read as canyons/ridges rather
+// than axis-aligned smudges
 const TERRAIN = [
-  { cx:  0.24, cy: -0.26, rx: 0.26, ry: 0.13, op: 0.44 }, // Tharsis plateau
-  { cx: -0.38, cy:  0.14, rx: 0.32, ry: 0.17, op: 0.40 }, // Valles Marineris
-  { cx:  0.16, cy:  0.46, rx: 0.20, ry: 0.10, op: 0.32 },
-  { cx: -0.16, cy: -0.52, rx: 0.17, ry: 0.08, op: 0.26 },
-  { cx:  0.54, cy: -0.04, rx: 0.14, ry: 0.18, op: 0.22 },
-  { cx: -0.24, cy:  0.56, rx: 0.26, ry: 0.10, op: 0.28 },
-  { cx:  0.44, cy:  0.44, rx: 0.10, ry: 0.11, op: 0.18 },
-  { cx: -0.04, cy:  0.22, rx: 0.34, ry: 0.05, op: 0.13 }, // equatorial rift
+  { cx:  0.24, cy: -0.26, rx: 0.26, ry: 0.13, op: 0.46, rot:  0.35 }, // Tharsis plateau
+  { cx: -0.38, cy:  0.14, rx: 0.34, ry: 0.15, op: 0.44, rot: -0.22 }, // Valles Marineris
+  { cx:  0.16, cy:  0.46, rx: 0.20, ry: 0.10, op: 0.34, rot:  0.55 },
+  { cx: -0.16, cy: -0.52, rx: 0.17, ry: 0.08, op: 0.28, rot: -0.40 },
+  { cx:  0.54, cy: -0.04, rx: 0.14, ry: 0.17, op: 0.24, rot:  0.10 },
+  { cx: -0.24, cy:  0.56, rx: 0.26, ry: 0.10, op: 0.30, rot:  0.15 },
+  { cx:  0.44, cy:  0.44, rx: 0.10, ry: 0.11, op: 0.20, rot:  0.00 },
+  { cx: -0.04, cy:  0.22, rx: 0.30, ry: 0.045,op: 0.16, rot:  0.14 }, // equatorial rift, now angled
 ];
 
 // ── Network routes as normalised cubic beziers ──────────────────────────
@@ -82,6 +84,21 @@ const PARAMS: Record<string, VisualParams> = {
 // ── Pure helpers ─────────────────────────────────────────────────────────
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
+// Polar ice cap — fixed at the rotation axis (drawn without ca/sa, unlike
+// terrain), warm-white frost tying into the cream route colour
+function drawIceCap(ctx: CanvasRenderingContext2D, cx: number, cy: number, rx: number, ry: number, coreOp: number) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(rx, ry);
+  const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
+  g.addColorStop(0.00, `rgba(255,240,228,${coreOp})`);
+  g.addColorStop(0.50, `rgba(244,214,194,${coreOp * 0.55})`);
+  g.addColorStop(1.00, 'rgba(240,208,188,0)');
+  ctx.beginPath(); ctx.arc(0, 0, 1, 0, Math.PI * 2);
+  ctx.fillStyle = g; ctx.fill();
+  ctx.restore();
+}
+
 function bzPt(route: typeof ROUTES[number], t: number) {
   const { p0, cp1, cp2, p1 } = route;
   const mt = 1 - t;
@@ -115,15 +132,22 @@ function drawSphere(ctx: CanvasRenderingContext2D, time: number, br: number, mlP
     const ry = f.cx * sa + f.cy * ca;
     ctx.save();
     ctx.translate(CX + rx * R, CY + ry * R);
+    ctx.rotate(f.rot);
     ctx.scale(f.rx * R, f.ry * R);
     const tg = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
-    tg.addColorStop(0.0, `rgba(20,5,1,${f.op})`);
-    tg.addColorStop(0.6, `rgba(15,3,1,${f.op * 0.32})`);
-    tg.addColorStop(1.0, 'rgba(0,0,0,0)');
+    tg.addColorStop(0.00, `rgba(18,4,1,${f.op})`);
+    tg.addColorStop(0.38, `rgba(16,4,1,${f.op * 0.62})`);
+    tg.addColorStop(0.75, `rgba(14,3,1,${f.op * 0.16})`);
+    tg.addColorStop(1.00, 'rgba(0,0,0,0)');
     ctx.beginPath(); ctx.arc(0, 0, 1, 0, Math.PI * 2);
     ctx.fillStyle = tg; ctx.fill();
     ctx.restore();
   });
+
+  // Polar ice caps — the single biggest legibility win for "this is Mars"
+  drawIceCap(ctx, CX, CY - R * 0.80, R * 0.32, R * 0.14, 0.88);
+  drawIceCap(ctx, CX, CY - R * 0.86, R * 0.15, R * 0.06, 0.55);
+  drawIceCap(ctx, CX, CY + R * 0.83, R * 0.24, R * 0.10, 0.72);
 
   // ML monogram — etched into terrain, visible only when connected
   if (mlPhase > 0.01) {
@@ -179,6 +203,16 @@ function drawOrbitHalf(ctx: CanvasRenderingContext2D, orb: typeof ORBITS[number]
   if (oa < 0.01) return;
   ctx.save(); ctx.translate(CX, CY);
 
+  // FIX: clip to the region OUTSIDE the planet disk. ry can be smaller than
+  // R (innermost ring), so without this the "front" half-arc cut straight
+  // across the visible face near its vertical vertices — looked like a
+  // rendering glitch, not an orbit. Same clip stops a node's glow from
+  // smudging onto the limb when its distance from centre grazes R.
+  ctx.beginPath();
+  ctx.rect(-W, -H, W * 2, H * 2);
+  ctx.moveTo(R, 0); ctx.arc(0, 0, R, 0, Math.PI * 2);
+  ctx.clip('evenodd');
+
   // Only the matching arc half (occlusion trick)
   const startA = front ? 0       : Math.PI;
   const endA   = front ? Math.PI : Math.PI * 2;
@@ -189,7 +223,9 @@ function drawOrbitHalf(ctx: CanvasRenderingContext2D, orb: typeof ORBITS[number]
   // Warm white rings — no blue
   ctx.strokeStyle = `rgba(225,198,174,${alpha})`;
   ctx.lineWidth   = orb.lw;
+  ctx.shadowBlur  = 3; ctx.shadowColor = 'rgba(220,150,100,0.55)'; // reads through the corona instead of drowning in it
   ctx.setLineDash(orb.dash); ctx.stroke(); ctx.setLineDash([]);
+  ctx.shadowBlur  = 0;
 
   // Orbital node (satellite)
   const nx = orb.rx * Math.cos(nodeAngle);
@@ -282,6 +318,16 @@ export function LivingMars({ state = 'offline' }: { state?: string }) {
     if (!rawCtx) return;
     const ctx: CanvasRenderingContext2D = rawCtx;
 
+    // HiDPI: backing store at devicePixelRatio, CSS box stays W×H, then
+    // scale the context so every draw call below keeps using CSS-pixel
+    // coordinates. Without this the canvas is soft on any Retina display.
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    canvas.width  = W * dpr;
+    canvas.height = H * dpr;
+    canvas.style.width  = `${W}px`;
+    canvas.style.height = `${H}px`;
+    ctx.scale(dpr, dpr);
+
     // Very subtle scanline texture (depth without CRT feel)
     const scan = document.createElement('canvas');
     scan.width = 2; scan.height = 4;
@@ -363,11 +409,11 @@ export function LivingMars({ state = 'offline' }: { state?: string }) {
         g1.addColorStop(1.0, 'rgba(0,0,0,0)');
         ctx.beginPath(); ctx.arc(CX,CY,R*3.0,0,Math.PI*2); ctx.fillStyle=g1; ctx.fill();
 
-        const g2 = ctx.createRadialGradient(CX,CY,R*0.93,CX,CY,R*1.36);
-        g2.addColorStop(0.0, `rgba(200,86,36,${0.23*ai})`);
-        g2.addColorStop(0.65,`rgba(176,66,24,${0.09*ai})`);
+        const g2 = ctx.createRadialGradient(CX,CY,R*0.93,CX,CY,R*1.22);
+        g2.addColorStop(0.0, `rgba(200,86,36,${0.20*ai})`);
+        g2.addColorStop(0.65,`rgba(176,66,24,${0.07*ai})`);
         g2.addColorStop(1.0, 'rgba(0,0,0,0)');
-        ctx.beginPath(); ctx.arc(CX,CY,R*1.36,0,Math.PI*2); ctx.fillStyle=g2; ctx.fill();
+        ctx.beginPath(); ctx.arc(CX,CY,R*1.22,0,Math.PI*2); ctx.fillStyle=g2; ctx.fill();
       }
 
       // 4 ── Back orbital rings (behind planet)
@@ -392,7 +438,7 @@ export function LivingMars({ state = 'offline' }: { state?: string }) {
 
           // Wide glow pass
           ctx.beginPath(); ctx.moveTo(x0,y0); ctx.bezierCurveTo(cx1,cy1,cx2,cy2,x1,y1);
-          ctx.strokeStyle=`rgba(${rgb},${ra*0.09})`; ctx.lineWidth=13; ctx.lineCap='round';
+          ctx.strokeStyle=`rgba(${rgb},${ra*0.11})`; ctx.lineWidth=9; ctx.lineCap='round';
           ctx.shadowBlur=0; ctx.stroke();
 
           // Core line with bloom — CREAM on RED PLANET (the signature look)
@@ -491,7 +537,7 @@ export function LivingMars({ state = 'offline' }: { state?: string }) {
       ref={canvasRef}
       width={W}
       height={H}
-      style={{ display: 'block' }}
+      style={{ display: 'block', width: W, height: H }}
     />
   );
 }

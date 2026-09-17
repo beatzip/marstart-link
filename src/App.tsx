@@ -13,6 +13,7 @@ import type {
   TunnelStatus,
 } from './types';
 import './App.css';
+import { LivingMars } from './components/LivingMars';
 
 const defaultRoutes: EndpointSpec[] = [
   { id: 'eu-frankfurt', addr: '1.1.1.1:443', label: 'EU Frankfurt', weight: 1.15 },
@@ -332,6 +333,9 @@ function App() {
       </section>
 
       <section className="grid">
+        <div className="panel">
+          <LivingMars state="offline" />
+        </div>
         <div className="panel">
           <div className="panel-title">
             <h2>Routes</h2>
